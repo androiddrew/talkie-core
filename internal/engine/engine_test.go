@@ -190,14 +190,14 @@ func TestStreamedAudioWithUnderrun(t *testing.T) {
 	h := newHarness(t, options{wakeAt: []float64{wakeT}})
 	wakeThenCommand(h)
 	v := agentVoice(t, 3.0)
-	h.player.Start("s1", audio.ThenWait, 0)
+	h.player.Start("s1")
 	h.player.Add("s1", v[:rate], "The first part.")
 	h.feed(h.silence(1.5)) // half a second of underrun
 	if h.e.State() != Speaking {
 		t.Fatalf("state %s during the underrun", h.e.State())
 	}
 	h.player.Add("s1", v[rate:], "The rest.")
-	h.player.End("s1")
+	h.player.End("s1", audio.ThenWait, 0)
 	h.feed(h.silence(2.5))
 	fin := h.find(PlaybackFinished, nil)
 	if d := fin.Playback.Played - 3*time.Second; d < -50*time.Millisecond || d > 50*time.Millisecond {
@@ -225,11 +225,11 @@ func TestAgentStopPlayback(t *testing.T) {
 // interruption splits it into heard, cut and unspoken text.
 func longAnswer(h *harness, id string) {
 	v := agentVoice(h.t, 8.0)
-	h.player.Start(id, audio.ThenListen, 0)
+	h.player.Start(id)
 	h.player.Add(id, v[:2*rate], "Once upon a time,")
 	h.player.Add(id, v[2*rate:5*rate], "there was a little robot who loved to listen.")
 	h.player.Add(id, v[5*rate:], "It listened to the rain every night.")
-	h.player.End(id)
+	h.player.End(id, audio.ThenListen, 0)
 }
 
 func TestSpeechInterruptsAgent(t *testing.T) {

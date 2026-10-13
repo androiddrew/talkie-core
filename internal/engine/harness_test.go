@@ -1,22 +1,13 @@
 package engine
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
-	"errors"
-	"math"
-	"math/rand/v2"
-	"os"
-	"path/filepath"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
-	silerovad "github.com/androiddrew/go-silero-vad"
-
 	"github.com/androiddrew/talkie-core/internal/audio"
+	"github.com/androiddrew/talkie-core/internal/sim"
 )
 
 // The harness drives an Engine with audio built from real speech clips, the
@@ -28,179 +19,10 @@ import (
 
 const rate = audio.SampleRate
 
-var (
-	vadOnce   sync.Once
-	vadEngine *silerovad.Engine
-	vadErr    error
-)
-
-func vadStream(t *testing.T) *silerovad.Stream {
-	t.Helper()
-	library := os.Getenv("TALKIE_TEST_ORT")
-	if library == "" {
-		t.Skip("set TALKIE_TEST_ORT to an ONNX Runtime library for engine scenarios")
-	}
-	vadOnce.Do(func() { vadEngine, vadErr = silerovad.New(silerovad.Config{ORTLibrary: library}) })
-	if vadErr != nil {
-		t.Fatal(vadErr)
-	}
-	return vadEngine.NewStream()
-}
-
-// ------------------------------------------------------------------ audio
-
-var (
-	clipOnce sync.Once
-	clips    map[string][]float32
-)
-
-func clip(t *testing.T, name string, from, to float64) []float32 {
-	t.Helper()
-	clipOnce.Do(func() {
-		clips = map[string][]float32{}
-		for _, n := range []string{"hey_mycroft_test.wav", "office_lights.wav"} {
-			data, err := os.ReadFile(filepath.Join("testdata", n))
-			if err == nil {
-				clips[n], err = decodeWAV(data)
-			}
-			if err != nil {
-				panic(err)
-			}
-		}
-	})
-	a := clips[name]
-	end := len(a)
-	if to > 0 {
-		end = int(to * rate)
-	}
-	return a[int(from*rate):end]
-}
-
-func wakePhrase(t *testing.T) []float32 { return clip(t, "hey_mycroft_test.wav", 0, 0) }
-
-// command is about 2.7 s of speech, isolated by silence in the source clip.
-func command(t *testing.T) []float32 { return clip(t, "office_lights.wav", 26.0, 28.7) }
-
-func shortReply(t *testing.T) []float32 { return clip(t, "office_lights.wav", 31.0, 32.6) }
-
-// agentVoice is continuous speech used as the agent's synthesized voice.
-func agentVoice(t *testing.T, seconds float64) []float32 {
-	return clip(t, "office_lights.wav", 2.0, 2.0+seconds)
-}
-
-func decodeWAV(data []byte) ([]float32, error) {
-	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
-		return nil, errors.New("not a WAV file")
-	}
-	var format struct {
-		Tag, Channels uint16
-		Rate          uint32
-		_             uint32
-		_             uint16
-		Bits          uint16
-	}
-	for chunk := data[12:]; len(chunk) >= 8; {
-		id, size := string(chunk[:4]), int(binary.LittleEndian.Uint32(chunk[4:8]))
-		if size > len(chunk)-8 {
-			return nil, errors.New("truncated chunk")
-		}
-		body := chunk[8 : 8+size]
-		switch id {
-		case "fmt ":
-			if err := binary.Read(bytes.NewReader(body), binary.LittleEndian, &format); err != nil {
-				return nil, err
-			}
-		case "data":
-			if format.Tag != 1 || format.Channels != 1 || format.Rate != rate || format.Bits != 16 {
-				return nil, errors.New("expected mono 16-bit PCM at 16 kHz")
-			}
-			out := make([]float32, size/2)
-			for i := range out {
-				out[i] = float32(int16(binary.LittleEndian.Uint16(body[2*i:]))) / 32768
-			}
-			return out, nil
-		}
-		chunk = chunk[8+size+size%2:]
-	}
-	return nil, errors.New("no data chunk")
-}
-
-// ------------------------------------------------------------------- room
-
-// room is a simulated speaker -> room -> mic path: the agent's audio comes
-// back delayed (80 ms), reverberant (300 ms RT60), slightly distorted and 6 dB
-// down, plus room noise. With echo off it is a headset: the mic hears only
-// the user. Ported from wonky-talkie's EchoRoom.
-type room struct {
-	echo       bool
-	rir        []float64 // impulse response from the first nonzero tap
-	delay      int
-	distortion float64
-	noise      float64
-	rng        *rand.Rand
-	played     []float64 // distorted speaker history, newest last
-}
-
-func newRoom(echo bool) *room {
-	const delayMS, gainDB, rt60MS = 80, -6, 300
-	rng := rand.New(rand.NewPCG(1, 2))
-	g := math.Pow(10, gainDB/20.0)
-	d := rate * delayMS / 1000
-	n := rate * (delayMS + rt60MS) / 1000
-	rir := make([]float64, n-d)
-	rir[0] = g
-	for i := 1; i < len(rir); i++ {
-		rir[i] = rng.NormFloat64() * math.Exp(-float64(i-1)/(rate*rt60MS/6900.0)) * 0.16 * g
-	}
-	return &room{echo: echo, rir: rir, delay: d, distortion: 1.5, noise: math.Pow(10, -65/20.0), rng: rng}
-}
-
-// mix returns what the mic hears while the speaker plays ref.
-func (r *room) mix(user, ref []float32) []float32 {
-	if !r.echo {
-		return user
-	}
-	mic := make([]float32, len(user))
-	for i, u := range user {
-		x := float64(ref[i])
-		if r.distortion != 0 { // speaker nonlinearity, which linear AEC can't remove
-			x = math.Tanh(x*r.distortion) / r.distortion
-		}
-		r.played = append(r.played, x)
-		// Echo: the speaker signal from delay samples ago through the room.
-		var echo float64
-		last := len(r.played) - 1 - r.delay
-		for k := 0; k < len(r.rir) && last-k >= 0; k++ {
-			if s := r.played[last-k]; s != 0 {
-				echo += r.rir[k] * s
-			}
-		}
-		// The converter clips at full scale.
-		mic[i] = float32(max(-1, min(1, float64(u)+echo+r.rng.NormFloat64()*r.noise)))
-	}
-	if keep := r.delay + len(r.rir); len(r.played) > 2*keep {
-		r.played = append(r.played[:0], r.played[len(r.played)-keep:]...)
-	}
-	return mic
-}
-
-// ---------------------------------------------------------------- harness
-
-// scriptedWake fires at fixed stream positions.
-type scriptedWake struct {
-	pending []int64
-	total   int64
-}
-
-func (w *scriptedWake) Write(_ context.Context, samples []float32) ([]int64, error) {
-	w.total += int64(len(samples))
-	var fired []int64
-	for len(w.pending) > 0 && w.pending[0] <= w.total {
-		fired = append(fired, w.pending[0])
-		w.pending = w.pending[1:]
-	}
-	return fired, nil
-}
+func wakePhrase(t *testing.T) []float32                  { return sim.WakePhrase(t) }
+func command(t *testing.T) []float32                     { return sim.Command(t) }
+func shortReply(t *testing.T) []float32                  { return sim.ShortReply(t) }
+func agentVoice(t *testing.T, seconds float64) []float32 { return sim.AgentVoice(t, seconds) }
 
 type options struct {
 	wakeAt   []float64              // seconds
@@ -214,8 +36,8 @@ type harness struct {
 	t      *testing.T
 	e      *Engine
 	player *audio.Player
-	room   *room
-	noise  *rand.Rand
+	room   *sim.Room
+	noise  *sim.Noise
 	log    []Event
 	stt    func([]float32) string
 	delay  int64
@@ -229,23 +51,20 @@ type pendingJob struct {
 
 func newHarness(t *testing.T, o options) *harness {
 	t.Helper()
-	stream := vadStream(t)
+	vad := sim.VAD(t)
 	cfg := Defaults()
 	if o.edit != nil {
 		o.edit(&cfg)
 	}
-	h := &harness{t: t, player: audio.NewPlayer(rate, 15*time.Millisecond), room: newRoom(o.echo),
-		noise: rand.New(rand.NewPCG(3, 4)), stt: o.stt, delay: samples(o.sttDelay)}
+	h := &harness{t: t, player: audio.NewPlayer(rate, 15*time.Millisecond), room: sim.NewRoom(o.echo),
+		noise: sim.NewNoise(), stt: o.stt, delay: samples(o.sttDelay)}
 	if h.stt == nil {
 		h.stt = func([]float32) string { return "hello" }
 	}
-	wake := &scriptedWake{}
-	for _, s := range o.wakeAt {
-		wake.pending = append(wake.pending, int64(s*rate))
-	}
+	wake := sim.NewWake(o.wakeAt...)
 	var err error
 	h.e, err = New(cfg, Deps{
-		VAD:    func(c []float32) (float32, error) { return stream.Process(context.Background(), c) },
+		VAD:    vad,
 		Wake:   wake,
 		Player: h.player,
 		Transcribe: func(j Job) {
@@ -259,15 +78,8 @@ func newHarness(t *testing.T, o options) *harness {
 	return h
 }
 
-// noise returns room noise at about -65 dBFS.
-func (h *harness) silence(seconds float64) []float32 {
-	out := make([]float32, int(seconds*rate))
-	amp := math.Pow(10, -65/20.0)
-	for i := range out {
-		out[i] = float32(h.noise.NormFloat64() * amp)
-	}
-	return out
-}
+// silence returns room noise.
+func (h *harness) silence(seconds float64) []float32 { return h.noise.Silence(seconds) }
 
 // feed plays the user's audio into the mic, 32 ms at a time.
 func (h *harness) feed(user []float32) {
@@ -276,7 +88,7 @@ func (h *harness) feed(user []float32) {
 		block := user[start:min(start+chunk, len(user))]
 		ref := make([]float32, len(block))
 		h.e.PlayerEvents(h.player.Read(ref))
-		if err := h.e.Audio(context.Background(), h.room.mix(block, ref), ref); err != nil {
+		if err := h.e.Audio(context.Background(), h.room.Mix(block, ref), ref); err != nil {
 			h.t.Fatal(err)
 		}
 		h.deliver()
@@ -294,9 +106,9 @@ func (h *harness) deliver() {
 
 // play queues the agent's audio, as speaking a reply does.
 func (h *harness) play(id string, samples []float32, text string, then audio.Then, timeout time.Duration) {
-	h.player.Start(id, then, timeout)
+	h.player.Start(id)
 	h.player.Add(id, samples, text)
-	h.player.End(id)
+	h.player.End(id, then, timeout)
 }
 
 // types lists the events so far, without state changes.

@@ -63,15 +63,14 @@ func NewPlayer(rate int, ramp time.Duration) *Player {
 func (p *Player) Rate() int { return p.rate }
 
 // Start queues a new playback item behind any others. Items queued before it
-// are ended: no more audio can be added to them. then and timeout are
-// reported when it finishes.
-func (p *Player) Start(id string, then Then, timeout time.Duration) {
+// are ended: no more audio can be added to them.
+func (p *Player) Start(id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, it := range p.items {
 		it.ended = true
 	}
-	p.items = append(p.items, &item{id: id, then: then, timeout: timeout})
+	p.items = append(p.items, &item{id: id, then: ThenListen})
 }
 
 // Add appends samples at the output rate to item id, reporting false if it
@@ -97,15 +96,16 @@ func (p *Player) Add(id string, samples []float32, text string) bool {
 	return true
 }
 
-// End marks item id complete: it finishes once its audio has played.
-func (p *Player) End(id string) bool {
+// End marks item id complete: it finishes once its audio has played, and
+// its Finished event carries then and timeout, what the session does next.
+func (p *Player) End(id string, then Then, timeout time.Duration) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	it := p.find(id)
 	if it == nil {
 		return false
 	}
-	it.ended = true
+	it.ended, it.then, it.timeout = true, then, timeout
 	return true
 }
 

@@ -31,7 +31,7 @@ func TestPlayerLifecycle(t *testing.T) {
 	if events := p.Read(out); events != nil || sum(out) != 0 || p.Active() {
 		t.Fatalf("idle player: events %v, sum %v", events, sum(out))
 	}
-	p.Start("a", ThenListen, 5*time.Second)
+	p.Start("a")
 	p.Add("a", ones(150), "Hello there.")
 	events := p.Read(out)
 	if len(events) != 1 || events[0].Kind != Started || events[0].Progress.ID != "a" || sum(out) != 100 {
@@ -42,7 +42,7 @@ func TestPlayerLifecycle(t *testing.T) {
 		t.Fatalf("underrun: %+v, sum %v", events, sum(out))
 	}
 	p.Add("a", ones(30), "")
-	p.End("a")
+	p.End("a", ThenListen, 5*time.Second)
 	if p.Add("a", ones(10), "late") {
 		t.Fatal("Add accepted audio after End")
 	}
@@ -62,14 +62,14 @@ func TestPlayerLifecycle(t *testing.T) {
 
 func TestPlayerQueue(t *testing.T) {
 	p := NewPlayer(rate, time.Millisecond)
-	p.Start("a", ThenWait, 0)
+	p.Start("a")
 	p.Add("a", ones(50), "One.")
-	p.Start("b", ThenEnd, 0) // ends "a"
+	p.Start("b") // ends "a"
 	if p.Add("a", ones(10), "") {
 		t.Error("a new item did not end the previous one")
 	}
 	p.Add("b", ones(50), "Two.")
-	p.End("b")
+	p.End("b", ThenEnd, 0)
 	events := p.Read(make([]float32, 200))
 	var kinds []string
 	for _, e := range events {
@@ -87,7 +87,7 @@ func TestPlayerQueue(t *testing.T) {
 // the point playback stopped.
 func TestPlayerStopProgress(t *testing.T) {
 	p := NewPlayer(rate, time.Millisecond)
-	p.Start("a", ThenListen, 0)
+	p.Start("a")
 	p.Add("a", ones(100), "Once upon a time,")
 	p.Add("a", ones(100), "there was a robot.")
 	p.Add("a", ones(50), "") // the same sentence, synthesized in two runs
@@ -114,7 +114,7 @@ func TestPlayerStopProgress(t *testing.T) {
 
 func TestPlayerDuck(t *testing.T) {
 	p := NewPlayer(rate, 10*time.Millisecond) // 10-sample ramp
-	p.Start("a", ThenListen, 0)
+	p.Start("a")
 	p.Add("a", ones(100), "x")
 	p.Duck(-20)
 	out := make([]float32, 20)
@@ -131,7 +131,7 @@ func TestPlayerDuck(t *testing.T) {
 	p.Duck(-20)
 	p.Read(out)
 	p.Stop()
-	p.Start("b", ThenListen, 0)
+	p.Start("b")
 	p.Add("b", ones(10), "y")
 	p.Read(out)
 	if out[0] != 1 {
