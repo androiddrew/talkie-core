@@ -7,7 +7,8 @@ internal/wake adapts the sliding-window listener of phonmatchnet-run v0.2.0
 https://github.com/androiddrew/phonmatchnet-run.
 
 internal/engine, internal/audio and their test harness port the listener
-engine, player, ring buffer, transcript clean-up and echo simulation of
+engine, player, ring buffer, resampler, transcript clean-up and echo
+simulation of
 wonky-talkie (Copyright 2026 Drew Bednar), https://github.com/androiddrew/wonky-talkie.
 
 Test clips in internal/engine/testdata are real speech from openWakeWord

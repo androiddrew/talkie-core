@@ -89,14 +89,20 @@ func newBench(t *testing.T, agent Agent, o benchOptions) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.conv.background = func(f func()) { f() } // transcription is instant
-	t.Cleanup(func() {
+	b.attach()
+	return b
+}
+
+// attach makes transcription synchronous and cancels the last turn at the
+// end of the test.
+func (b *bench) attach() {
+	b.conv.background = func(f func()) { f() }
+	b.t.Cleanup(func() {
 		if tr := b.conv.last; tr != nil {
 			tr.cancel()
 			<-tr.done
 		}
 	})
-	return b
 }
 
 // feed plays the user's audio into the mic, 32 ms at a time, in lock-step

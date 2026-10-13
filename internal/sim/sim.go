@@ -84,10 +84,11 @@ func Clip(tb testing.TB, name string, from, to float64) []float32 {
 // WakePhrase is "hey mycroft", 0.95 s.
 func WakePhrase(tb testing.TB) []float32 { return Clip(tb, "hey_mycroft_test.wav", 0, 0) }
 
-// Command is about 2.7 s of speech, isolated by silence in the source clip.
+// Command is about 2.7 s of speech, isolated by silence in the source clip:
+// "So if we turn that off, does it work with".
 func Command(tb testing.TB) []float32 { return Clip(tb, "office_lights.wav", 26.0, 28.7) }
 
-// ShortReply is about 1.6 s of speech.
+// ShortReply is about 1.6 s of speech: "Turn on the office lights."
 func ShortReply(tb testing.TB) []float32 { return Clip(tb, "office_lights.wav", 31.0, 32.6) }
 
 // AgentVoice is continuous speech used as the agent's synthesized voice.
