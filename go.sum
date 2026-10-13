@@ -1,5 +1,7 @@
 github.com/androiddrew/go-phonmatchnet v0.1.0 h1:96tAs36WT+c6lu65vGKfKismouZqWI/DEox103uomX0=
 github.com/androiddrew/go-phonmatchnet v0.1.0/go.mod h1:zEWbtmZeTm+3+we/Ur+Vfpym3uh9Y6mG5/igI5kMpIg=
+github.com/androiddrew/go-silero-vad v0.1.0 h1:5JVZWj6hvax17zpsouLNGw1yXGkih3HmCOMsAur+uRY=
+github.com/androiddrew/go-silero-vad v0.1.0/go.mod h1:+k9XS5Xpk7NIs1tLSJo9lZTgxArUFsKjsZ7NXdQuGyA=
 github.com/androiddrew/ortenv v0.2.0 h1:qYhIAAOy2HJyc4FHGmdbq3dk41RpiBQxlncMcDKAehA=
 github.com/androiddrew/ortenv v0.2.0/go.mod h1:v0we3sbtZaSgJSzI/4OhEUGfQyuZM9aYAxcUOCl+8W0=
 github.com/yalue/onnxruntime_go v1.22.0 h1:SzqOfFRRrLRRAFR5VoSxABjTiQSAi8Y4ETYKrMFK1jk=

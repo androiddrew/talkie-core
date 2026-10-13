@@ -2,7 +2,10 @@ module github.com/androiddrew/talkie-core
 
 go 1.25.0
 
-require github.com/androiddrew/go-phonmatchnet v0.1.0
+require (
+	github.com/androiddrew/go-phonmatchnet v0.1.0
+	github.com/androiddrew/go-silero-vad v0.1.0
+)
 
 require (
 	github.com/androiddrew/ortenv v0.2.0 // indirect
