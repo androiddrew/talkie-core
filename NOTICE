@@ -1,0 +1,11 @@
+talkie-core
+Copyright 2026 Drew Bednar and contributors
+
+Original project code is licensed under Apache-2.0 (LICENSE).
+internal/wake adapts the sliding-window listener of phonmatchnet-run v0.2.0
+(internal/listen, Apache-2.0, Copyright 2026 Drew Bednar),
+https://github.com/androiddrew/phonmatchnet-run.
+
+Test clips in internal/wake/testdata are from go-phonmatchnet v0.1.0's
+fixtures: synthesized with Kokoro-82M v1.0 (Apache-2.0), voice af_heart,
+resampled to 16 kHz.
