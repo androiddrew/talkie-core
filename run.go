@@ -32,14 +32,25 @@ func pump(player *audio.Player, rate int, blocks chan<- block) device.Callback {
 		played := player.Read(out)
 		mic := make([]float32, len(in))
 		for i, s := range in {
-			// Devices can deliver samples past full scale; the VAD rejects them.
-			if math.IsNaN(float64(s)) {
-				s = 0
+			if !math.IsNaN(float64(s)) { // NaN would poison the resampler
+				mic[i] = s
 			}
-			mic[i] = max(-1, min(1, s))
 		}
-		blocks <- block{mic: micRS.Process(mic), ref: refRS.Process(out), played: played}
+		// Copy what was played: the device reuses out, and at 16 kHz the
+		// resampler passes its input through.
+		ref := append([]float32(nil), out...)
+		blocks <- block{mic: clip(micRS.Process(mic)), ref: clip(refRS.Process(ref)), played: played}
 	}
+}
+
+// clip limits samples to [-1, 1] in place. Devices can deliver samples past
+// full scale, and the resampler's filter overshoots near it; the VAD and the
+// echo canceller reject anything outside.
+func clip(samples []float32) []float32 {
+	for i, s := range samples {
+		samples[i] = max(-1, min(1, s))
+	}
+	return samples
 }
 
 // run is the owner goroutine: it feeds device blocks to the conversation

@@ -2,6 +2,7 @@ package talkie
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -109,4 +110,55 @@ func TestPumpCleansMicrophone(t *testing.T) {
 func nanValue() float64 {
 	zero := 0.0
 	return zero / zero
+}
+
+// TestPumpStaysInRange: a full-scale square wave overshoots in the
+// resampler's lowpass filter. The microphone and the speaker reference must
+// still reach the engine within [-1, 1], or the VAD and the echo canceller
+// reject them and Run stops.
+func TestPumpStaysInRange(t *testing.T) {
+	for _, rate := range []int{48000, sim.Rate} {
+		pumpStaysInRange(t, rate)
+	}
+}
+
+func pumpStaysInRange(t *testing.T, rate int) {
+	player := audio.NewPlayer(rate, time.Millisecond)
+	square := make([]float32, rate)
+	for i := range square {
+		square[i] = 1
+		if (i/40)%2 == 1 {
+			square[i] = -1
+		}
+	}
+	player.Start("loud")
+	player.Add("loud", square, "Loud.")
+	player.End("loud", audio.ThenListen, 0)
+	blocks := make(chan block, 100)
+	cb := pump(player, rate, blocks)
+	period := rate / 50
+	for start := 0; start+period <= len(square); start += period {
+		out := make([]float32, period)
+		cb(square[start:start+period], out)
+		clear(out) // the device reuses its buffer
+		b := <-blocks
+		for _, x := range [][]float32{b.mic, b.ref} {
+			for _, s := range x {
+				if !(s >= -1 && s <= 1) {
+					t.Fatalf("%d Hz: sample %v reached the engine", rate, s)
+				}
+			}
+		}
+		if start > rate/10 && rms(b.ref) < 0.5 {
+			t.Fatalf("%d Hz: the reference lost what was played (rms %.3f)", rate, rms(b.ref))
+		}
+	}
+}
+
+func rms(x []float32) float64 {
+	var sum float64
+	for _, s := range x {
+		sum += float64(s) * float64(s)
+	}
+	return math.Sqrt(sum / float64(max(1, len(x))))
 }
