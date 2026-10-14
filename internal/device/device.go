@@ -32,9 +32,10 @@ type Callback func(in, out []float32)
 
 // Duplex is an open full-duplex device.
 type Duplex struct {
-	ctx  *malgo.AllocatedContext
-	dev  *malgo.Device
-	rate int
+	ctx           *malgo.AllocatedContext
+	dev           *malgo.Device
+	rate          int
+	input, output string // resolved device names
 }
 
 // Open initializes the device; Start begins calling cb.
@@ -57,10 +58,10 @@ func Open(c Config, cb Callback) (_ *Duplex, err error) {
 	cfg.PeriodSizeInMilliseconds = uint32(c.Period / time.Millisecond)
 	cfg.Capture.Format, cfg.Capture.Channels = malgo.FormatF32, 1
 	cfg.Playback.Format, cfg.Playback.Channels = malgo.FormatF32, 1
-	if cfg.Capture.DeviceID, err = find(ctx, malgo.Capture, c.Input); err != nil {
+	if cfg.Capture.DeviceID, d.input, err = find(ctx, malgo.Capture, c.Input); err != nil {
 		return nil, err
 	}
-	if cfg.Playback.DeviceID, err = find(ctx, malgo.Playback, c.Output); err != nil {
+	if cfg.Playback.DeviceID, d.output, err = find(ctx, malgo.Playback, c.Output); err != nil {
 		return nil, err
 	}
 	data := func(out, in []byte, frames uint32) {
@@ -80,24 +81,28 @@ func floats(b []byte, frames uint32) []float32 {
 	return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), frames)
 }
 
-// find returns the ID of the first device of kind whose name contains name,
-// or nil for the default.
-func find(ctx *malgo.AllocatedContext, kind malgo.DeviceType, name string) (unsafe.Pointer, error) {
-	if name == "" {
-		return nil, nil
-	}
+// find returns the ID and full name of the first device of kind whose name
+// contains name. For an empty name it returns a nil ID, which selects the
+// system default, and the default device's name.
+func find(ctx *malgo.AllocatedContext, kind malgo.DeviceType, name string) (unsafe.Pointer, string, error) {
 	infos, err := ctx.Devices(kind)
 	if err != nil {
-		return nil, fmt.Errorf("device: list: %w", err)
+		return nil, "", fmt.Errorf("device: list: %w", err)
 	}
 	var names []string
 	for _, info := range infos {
-		if strings.Contains(strings.ToLower(info.Name()), strings.ToLower(name)) {
-			return info.ID.Pointer(), nil
+		if name == "" && info.IsDefault != 0 {
+			return nil, info.Name(), nil
+		}
+		if name != "" && strings.Contains(strings.ToLower(info.Name()), strings.ToLower(name)) {
+			return info.ID.Pointer(), info.Name(), nil
 		}
 		names = append(names, info.Name())
 	}
-	return nil, fmt.Errorf("device: no device matches %q; have %q", name, names)
+	if name == "" {
+		return nil, "default", nil // the backend reports no default; it still opens one
+	}
+	return nil, "", fmt.Errorf("device: no device matches %q; have %q", name, names)
 }
 
 // Start begins audio.
@@ -105,6 +110,10 @@ func (d *Duplex) Start() error { return d.dev.Start() }
 
 // Rate returns the stream's sample rate.
 func (d *Duplex) Rate() int { return d.rate }
+
+// Names returns the full names of the microphone and speaker in use, with
+// the system defaults resolved to the devices they are.
+func (d *Duplex) Names() (input, output string) { return d.input, d.output }
 
 // Close stops audio and releases the device.
 func (d *Duplex) Close() error {

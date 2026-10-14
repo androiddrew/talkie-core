@@ -5,6 +5,8 @@
 //	go run ./cmd/talkie-demo -ort /path/to/libonnxruntime.so \
 //	    -parakeet /path/to/parakeet -kokoro /path/to/kokoro -wake "hey computer"
 //
+// Train it to the room once first: go run ./cmd/talkie-demo -train
+//
 // Say the wake word, then something, and it repeats what it heard. Say "tell
 // me a story" for a long reply to interrupt by talking over it; say "continue"
 // afterwards to pick it up from the sentence you cut off. Press Enter to talk
@@ -43,6 +45,7 @@ func main() {
 		noAEC    = flag.Bool("no-echo-cancel", false, "turn off echo cancellation (headset, or an echo-cancelled mic)")
 		latency  = flag.Duration("latency", 0, "speaker-to-microphone round trip (default 100ms)")
 		list     = flag.Bool("list", false, "list audio devices and exit")
+		room     = flag.Bool("train", false, "train talkie to this room and these devices, save the profile, and exit")
 		verbose  = flag.Bool("v", false, "log every state change")
 	)
 	flag.Parse()
@@ -59,6 +62,10 @@ func main() {
 		for _, n := range outputs {
 			fmt.Println("  " + n)
 		}
+		return
+	}
+	if *room {
+		trainRoom(talkie.Config{InputDevice: *input, OutputDevice: *output})
 		return
 	}
 	if *ort == "" || *parakeet == "" || *kokoro == "" {
@@ -196,6 +203,43 @@ func remaining(in *talkie.Interruption) []string {
 		}
 	}
 	return nil
+}
+
+// trainRoom measures the room through the devices, saves the profile where
+// talkie.Run looks for it, and prints what it found.
+func trainRoom(cfg talkie.Config) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	in := bufio.NewScanner(os.Stdin)
+	p, err := talkie.Train(ctx, cfg, func(ctx context.Context, s talkie.Step) error {
+		fmt.Printf("\n%s\nPress Enter when ready. ", s.Instruction)
+		if !in.Scan() {
+			return fmt.Errorf("stopped")
+		}
+		return ctx.Err()
+	})
+	if err != nil {
+		fail(err)
+	}
+	dir, err := talkie.DefaultProfileDir()
+	if err != nil {
+		fail(err)
+	}
+	path := talkie.ProfilePath(dir, p.Input, p.Output)
+	if err := talkie.SaveProfile(path, p); err != nil {
+		fail(err)
+	}
+	fmt.Printf("\nMicrophone: %s\nSpeaker:    %s\n", p.Input, p.Output)
+	fmt.Printf("Room noise: %.0f dBFS\n", p.NoiseDBFS)
+	if p.Echo.Heard {
+		fmt.Printf("Latency:    %v (measured %v to %v; talkie will assume %v)\n",
+			p.Latency.Median.Round(time.Millisecond), p.Latency.Min.Round(time.Millisecond), p.Latency.Max.Round(time.Millisecond), p.Latency.Assumed().Round(time.Millisecond))
+		fmt.Printf("Echo:       %+.1f dB\n", p.Echo.GainDB)
+	}
+	if p.Echo.Advice != "" {
+		fmt.Printf("\nAdvice: %s\n", p.Echo.Advice)
+	}
+	fmt.Printf("\nSaved %s\n", path)
 }
 
 func fail(err error) {

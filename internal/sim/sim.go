@@ -167,8 +167,13 @@ type Room struct {
 }
 
 // NewRoom returns a room, with the speaker's echo reaching the mic or not.
-func NewRoom(echo bool) *Room {
-	const delayMS, gainDB, rt60MS = 80, -6, 300
+func NewRoom(echo bool) *Room { return NewRoomDelay(echo, 80, -6) }
+
+// NewRoomDelay is NewRoom with a speaker-to-mic delay of delayMS and an
+// echo gainDB relative to what the speaker played. NewRoom is 80 ms and
+// -6 dB; a loud speaker near a sensitive microphone can be +8 dB and slower.
+func NewRoomDelay(echo bool, delayMS int, gainDB float64) *Room {
+	const rt60MS = 300
 	rng := rand.New(rand.NewPCG(1, 2))
 	g := math.Pow(10, gainDB/20.0)
 	d := Rate * delayMS / 1000

@@ -80,12 +80,13 @@ func (t *Talkie) Run(ctx context.Context) error {
 	t.running = true
 	defer func() { t.running = false }()
 	blocks := make(chan block, 256) // about 5 s of 20 ms periods
-	dev, err := device.Open(device.Config{
+	dev, err := t.open(device.Config{
 		Rate: t.player.Rate(), Period: period, Input: t.cfg.InputDevice, Output: t.cfg.OutputDevice,
 	}, pump(t.player, t.player.Rate(), blocks))
 	if err != nil {
 		return err
 	}
+	t.useProfile(dev.Names())
 	if err := dev.Start(); err != nil {
 		return errors.Join(err, dev.Close())
 	}
@@ -120,4 +121,42 @@ func (t *Talkie) Listen() {
 // EndSession ends the conversation in progress, if any.
 func (t *Talkie) EndSession() {
 	t.conv.post(func() { t.conv.eng.EndSession("client") })
+}
+
+// useProfile tunes the conversation with the room profile of the devices
+// in use, if there is one: the latency, unless Config.AudioLatency sets
+// it, and the profile's advice, logged. It runs before the conversation
+// starts.
+func (t *Talkie) useProfile(input, output string) {
+	if t.cfg.IgnoreRoomProfile {
+		return
+	}
+	log := t.cfg.Logger
+	dir := t.cfg.RoomProfileDir
+	if dir == "" {
+		var err error
+		if dir, err = DefaultProfileDir(); err != nil {
+			return
+		}
+	}
+	p, err := LoadProfile(ProfilePath(dir, input, output))
+	if err != nil {
+		if log != nil {
+			if errors.Is(err, ErrNoProfile) {
+				log.Info("no room profile for these devices: run room training to tune talkie to the room", "input", input, "output", output)
+			} else {
+				log.Warn("room profile not used", "err", err)
+			}
+		}
+		return
+	}
+	if t.cfg.AudioLatency == 0 && len(p.Latency.Runs) > 0 {
+		t.conv.eng.SetIOLatency(p.Latency.Assumed())
+	}
+	if log != nil {
+		log.Info("using room profile", "trained", p.Trained.Format(time.DateOnly), "latency", t.conv.eng.IOLatency(), "echo_gain_db", p.Echo.GainDB)
+		if p.Echo.Advice != "" {
+			log.Warn(p.Echo.Advice)
+		}
+	}
 }

@@ -57,6 +57,12 @@ type Config struct {
 	// 100 ms; PipeWire and Bluetooth devices are often slower.
 	AudioLatency time.Duration
 
+	// RoomProfileDir is where Run looks for the room profile of its
+	// devices; empty selects DefaultProfileDir. IgnoreRoomProfile makes Run
+	// use only this Config.
+	RoomProfileDir    string
+	IgnoreRoomProfile bool
+
 	// Logger, if set, receives the conversation's events at Info level and
 	// their details at Debug.
 	Logger *slog.Logger
@@ -95,6 +101,7 @@ type KokoroConfig struct {
 // Talkie is a loaded voice front end for an agent.
 type Talkie struct {
 	cfg     Config
+	open    opener // the audio devices; tests simulate them
 	running bool
 	vad     *silerovad.Engine
 	asr     *parakeet.Engine
@@ -113,7 +120,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	if cfg.OutputRate == 0 {
 		cfg.OutputRate = 48000
 	}
-	t := &Talkie{cfg: cfg}
+	t := &Talkie{cfg: cfg, open: openDevice}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, t.Close())

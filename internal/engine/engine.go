@@ -165,6 +165,12 @@ func (e *Engine) resetSegmenter(endSilence time.Duration) error {
 	return nil
 }
 
+// SetIOLatency sets the audio devices' round trip, as Config.IOLatency.
+func (e *Engine) SetIOLatency(d time.Duration) { e.cfg.IOLatency = d }
+
+// IOLatency returns the round trip in use.
+func (e *Engine) IOLatency() time.Duration { return e.cfg.IOLatency }
+
 // State returns the current state.
 func (e *Engine) State() State { return e.state }
 
