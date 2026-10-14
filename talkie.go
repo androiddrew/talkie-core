@@ -100,17 +100,21 @@ type KokoroConfig struct {
 
 // Talkie is a loaded voice front end for an agent.
 type Talkie struct {
-	cfg     Config
-	log     func(engine.Event) // nil without a logger
-	drift   *drift             // nil without a room profile
-	open    opener             // the audio devices; tests simulate them
-	running bool
-	vad     *silerovad.Engine
-	asr     *parakeet.Engine
-	tts     *text.Pipeline
-	wake    *phonmatchnet.Engine
-	player  *audio.Player
-	conv    *conversation
+	cfg   Config
+	log   func(engine.Event) // nil without a logger
+	drift *drift             // nil without a room profile
+	// wakeThreshold is the room profile's wake word threshold, or zero for
+	// PhonMatchNet's operating point. Set before Run starts; read by the
+	// wake listener on Run's goroutine.
+	wakeThreshold float64
+	open          opener // the audio devices; tests simulate them
+	running       bool
+	vad           *silerovad.Engine
+	asr           *parakeet.Engine
+	tts           *text.Pipeline
+	wake          *phonmatchnet.Engine
+	player        *audio.Player
+	conv          *conversation
 }
 
 // New loads the models and returns a front end that hands what the user says
@@ -204,11 +208,14 @@ func (t *Talkie) loadWake(ctx context.Context, cfg Config) (engine.Wake, error) 
 	if err != nil {
 		return nil, err
 	}
-	// phonmatchnet-run's listen defaults: a 1.5 s window every 250 ms, and a
-	// window's length before the next detection.
-	const window = 3 * phonmatchnet.SampleRate / 2
-	l, err := wake.New(wake.Config{Window: window, Hop: phonmatchnet.SampleRate / 4, Confirm: 1, Refractory: window},
-		wake.PhonMatchNet(t.wake, keyword, cfg.WakeFAR))
+	detect := wake.PhonMatchNet(t.wake, keyword, cfg.WakeFAR)
+	l, err := wake.New(wakeConfig(), func(ctx context.Context, w wake.Window) (phonmatchnet.Result, bool, error) {
+		r, accepted, err := detect(ctx, w)
+		if t.wakeThreshold > 0 { // tuned to the user by room training
+			accepted = r.Score >= t.wakeThreshold
+		}
+		return r, accepted, err
+	})
 	if err != nil {
 		return nil, err
 	}

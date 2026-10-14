@@ -49,36 +49,47 @@ func VAD(tb testing.TB) func([]float32) (float32, error) {
 // ------------------------------------------------------------------ clips
 
 var (
-	clipOnce sync.Once
-	clips    map[string][]float32
-	clipErr  error
+	clipMu sync.Mutex
+	clips  = map[string][]float32{}
 )
 
 // Clip returns from..to seconds of a testdata clip; to 0 means its end.
 func Clip(tb testing.TB, name string, from, to float64) []float32 {
 	tb.Helper()
-	clipOnce.Do(func() {
+	clipMu.Lock()
+	a, ok := clips[name]
+	if !ok {
 		_, file, _, _ := runtime.Caller(0)
-		clips = map[string][]float32{}
-		for _, n := range []string{"hey_mycroft_test.wav", "office_lights.wav"} {
-			var data []byte
-			if data, clipErr = os.ReadFile(filepath.Join(filepath.Dir(file), "testdata", n)); clipErr != nil {
-				return
-			}
-			if clips[n], clipErr = DecodeWAV(data); clipErr != nil {
-				return
-			}
+		data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "testdata", name))
+		if err == nil {
+			a, err = DecodeWAV(data)
 		}
-	})
-	if clipErr != nil {
-		tb.Fatal(clipErr)
+		if err != nil {
+			clipMu.Unlock()
+			tb.Fatal(err)
+		}
+		clips[name] = a
 	}
-	a := clips[name]
+	clipMu.Unlock()
 	end := len(a)
 	if to > 0 {
 		end = int(to * Rate)
 	}
 	return a[int(from*Rate):end]
+}
+
+// Voices are the Kokoro voices with wake word clips.
+var Voices = []string{"af_heart", "am_michael", "bf_emma"}
+
+// SaysWakeWord is voice saying "hey computer", synthesized by Kokoro.
+func SaysWakeWord(tb testing.TB, voice string) []float32 {
+	return Clip(tb, voice+"-hey-computer.wav", 0, 0)
+}
+
+// SaysConfusable is voice saying "hey commuter", which PhonMatchNet can
+// score as high as "hey computer".
+func SaysConfusable(tb testing.TB, voice string) []float32 {
+	return Clip(tb, voice+"-hey-commuter.wav", 0, 0)
 }
 
 // WakePhrase is "hey mycroft", 0.95 s.

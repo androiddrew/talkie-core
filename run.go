@@ -154,6 +154,17 @@ func (t *Talkie) useProfile(input, output string) {
 		t.conv.eng.SetIOLatency(p.Latency.Assumed())
 	}
 	t.drift = newDrift(p.Latency)
+	t.wakeThreshold = 0
+	if w := p.Wake; w != nil && t.cfg.WakeWord != "" {
+		switch {
+		case !sameWakeWord(w.Keyword, t.cfg.WakeWord):
+			if log != nil {
+				log.Info("the room profile's wake word training is for another wake word: train again to tune this one", "trained", w.Keyword, "wake_word", t.cfg.WakeWord)
+			}
+		case w.Threshold > 0:
+			t.wakeThreshold = w.Threshold
+		}
+	}
 	restored := false
 	if p.Canceller != nil && !t.cfg.DisableEchoCancellation {
 		if err := t.conv.eng.RestoreEcho(p.Canceller.Snapshot); err != nil {
@@ -165,9 +176,13 @@ func (t *Talkie) useProfile(input, output string) {
 		}
 	}
 	if log != nil {
-		log.Info("using room profile", "trained", p.Trained.Format(time.DateOnly), "latency", t.conv.eng.IOLatency(), "echo_gain_db", p.Echo.GainDB, "echo_canceller_restored", restored)
+		log.Info("using room profile", "trained", p.Trained.Format(time.DateOnly), "latency", t.conv.eng.IOLatency(), "echo_gain_db", p.Echo.GainDB,
+			"echo_canceller_restored", restored, "wake_threshold", t.wakeThreshold)
 		if p.Echo.Advice != "" {
 			log.Warn(p.Echo.Advice)
+		}
+		if p.Wake != nil && p.Wake.Advice != "" {
+			log.Warn(p.Wake.Advice)
 		}
 	}
 }

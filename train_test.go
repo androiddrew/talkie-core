@@ -25,6 +25,7 @@ type simDuplex struct {
 	cb     device.Callback
 	room   *sim.Room
 	noise  *sim.Noise
+	user   []float32 // what the user says into the microphone, then silence
 	period int
 	stop   chan struct{}
 	done   chan struct{}
@@ -33,17 +34,28 @@ type simDuplex struct {
 // simOpener opens simulated devices in rooms with the given delay and echo
 // gain, at sim.Rate.
 func simOpener(echo bool, delayMS int, gainDB float64) (opener, *int) {
+	return simOpenerSaying(echo, delayMS, gainDB, nil)
+}
+
+// simOpenerSaying is simOpener with a user who says says(n) into the
+// microphone on the device's nth open, counting from 1.
+func simOpenerSaying(echo bool, delayMS int, gainDB float64, says func(n int) []float32) (opener, *int) {
 	opens := new(int)
 	var mu sync.Mutex
 	return func(c device.Config, cb device.Callback) (duplex, error) {
 		mu.Lock()
 		*opens++
+		n := *opens
 		mu.Unlock()
 		if c.Rate != sim.Rate {
 			return nil, errors.New("simulated devices run at sim.Rate")
 		}
-		return &simDuplex{cb: cb, room: sim.NewRoomDelay(echo, delayMS, gainDB), noise: sim.NewNoise(),
-			period: sim.Rate / 50, stop: make(chan struct{}), done: make(chan struct{})}, nil
+		d := &simDuplex{cb: cb, room: sim.NewRoomDelay(echo, delayMS, gainDB), noise: sim.NewNoise(),
+			period: sim.Rate / 50, stop: make(chan struct{}), done: make(chan struct{})}
+		if says != nil {
+			d.user = says(n)
+		}
+		return d, nil
 	}, opens
 }
 
@@ -57,7 +69,14 @@ func (d *simDuplex) Start() error {
 				return
 			default:
 			}
-			in := d.room.Mix(d.noise.Silence(float64(d.period)/sim.Rate), previous)
+			user := d.noise.Silence(float64(d.period) / sim.Rate)
+			for i := range user {
+				if len(d.user) > 0 {
+					user[i] += d.user[0]
+					d.user = d.user[1:]
+				}
+			}
+			in := d.room.Mix(user, previous)
 			out := make([]float32, d.period)
 			d.cb(in, out)
 			previous = out
@@ -95,7 +114,7 @@ func TestTrain(t *testing.T) {
 		p, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(_ context.Context, s Step) error {
 			steps = append(steps, s.Name)
 			return nil
-		}, open, nil)
+		}, open, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +153,7 @@ func TestTrain(t *testing.T) {
 // TestTrainHeadset: the microphone never hears the speaker.
 func TestTrainHeadset(t *testing.T) {
 	open, _ := simOpener(false, 80, -6)
-	p, err := train(t.Context(), Config{OutputRate: sim.Rate}, ready, open, nil)
+	p, err := train(t.Context(), Config{OutputRate: sim.Rate}, ready, open, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +165,12 @@ func TestTrainHeadset(t *testing.T) {
 func TestTrainStops(t *testing.T) {
 	open, opens := simOpener(true, 80, -6)
 	stop := errors.New("not now")
-	if _, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(context.Context, Step) error { return stop }, open, nil); !errors.Is(err, stop) || *opens != 0 {
+	if _, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(context.Context, Step) error { return stop }, open, nil, nil); !errors.Is(err, stop) || *opens != 0 {
 		t.Errorf("err %v after %d opens", err, *opens)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := train(ctx, Config{OutputRate: sim.Rate}, ready, open, nil); !errors.Is(err, context.Canceled) {
+	if _, err := train(ctx, Config{OutputRate: sim.Rate}, ready, open, nil, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled: %v", err)
 	}
 	if _, err := Train(t.Context(), Config{}, nil); err == nil {

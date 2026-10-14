@@ -29,7 +29,7 @@ func trainedProfile(t *testing.T) Profile {
 	p, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(_ context.Context, s Step) error {
 		steps = append(steps, s.Name)
 		return nil
-	}, open, speak)
+	}, open, speak, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

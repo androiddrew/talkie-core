@@ -5,8 +5,9 @@
 //	go run ./cmd/talkie-demo -ort /path/to/libonnxruntime.so \
 //	    -parakeet /path/to/parakeet -kokoro /path/to/kokoro -wake "hey computer"
 //
-// Train it to the room once first (with -ort and -kokoro it also speaks, so
-// its echo canceller learns the room): go run ./cmd/talkie-demo -train ...
+// Train it to the room once first: go run ./cmd/talkie-demo -train ... With
+// -ort it also tunes the wake word to your voice, and with -kokoro it speaks,
+// so its echo canceller learns the room.
 //
 // Say the wake word, then something, and it repeats what it heard. Say "tell
 // me a story" for a long reply to interrupt by talking over it; say "continue"
@@ -67,6 +68,9 @@ func main() {
 	}
 	if *room {
 		cfg := talkie.Config{InputDevice: *input, OutputDevice: *output, ORTLibrary: *ort, CUDA: *cuda}
+		if *ort != "" { // say the wake word, to tune it to your voice
+			cfg.WakeWord = *wake
+		}
 		if *kokoro != "" && *ort != "" { // speak while the echo canceller learns
 			cfg.Kokoro = talkie.KokoroConfig{
 				ModelPath:  filepath.Join(*kokoro, "kokoro-v1.0.onnx"),
@@ -250,10 +254,31 @@ func trainRoom(cfg talkie.Config) {
 	} else {
 		fmt.Println("Canceller:  not trained (give -ort and -kokoro to train it)")
 	}
-	if p.Echo.Advice != "" {
-		fmt.Printf("\nAdvice: %s\n", p.Echo.Advice)
+	if w := p.Wake; w != nil {
+		scores := make([]string, len(w.Positives))
+		for i, v := range w.Positives {
+			scores[i] = fmt.Sprintf("%.2f", v)
+		}
+		fmt.Printf("Wake word:  %q scored %s; your other speech at most %.2f\n", w.Keyword, strings.Join(scores, ", "), w.NegativeMax)
+		if w.Threshold > 0 {
+			fmt.Printf("            talkie will wake at %.2f\n", w.Threshold)
+		}
+	} else {
+		fmt.Println("Wake word:  not tuned (give -ort and -wake to tune it)")
+	}
+	for _, advice := range []string{p.Echo.Advice, wakeAdvice(p)} {
+		if advice != "" {
+			fmt.Printf("\nAdvice: %s\n", advice)
+		}
 	}
 	fmt.Printf("\nSaved %s\n", path)
+}
+
+func wakeAdvice(p talkie.Profile) string {
+	if p.Wake == nil {
+		return ""
+	}
+	return p.Wake.Advice
 }
 
 func fail(err error) {

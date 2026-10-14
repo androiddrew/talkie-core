@@ -17,7 +17,7 @@ import (
 
 // Step is one stage of room training, for the application to present.
 type Step struct {
-	Name        string // "noise", "echo", "canceller"
+	Name        string // "noise", "echo", "canceller", "wake", "speech"
 	Instruction string // what to tell the user
 }
 
@@ -41,14 +41,24 @@ const (
 // the speaker-to-microphone delay and level from quiet chirps. When
 // cfg.Kokoro names the Kokoro files (with cfg.ORTLibrary), it then speaks a
 // short paragraph while the echo canceller learns the room, so Run can start
-// with it learned. Save the result with SaveProfile at ProfilePath(dir,
-// p.Input, p.Output) for Run to find it.
+// with it learned. When cfg.WakeWord is set (with cfg.ORTLibrary), the user
+// then says the wake word a few times and reads a sentence, to tune the wake
+// word's threshold to their voice. Save the result with SaveProfile at
+// ProfilePath(dir, p.Input, p.Output) for Run to find it.
 func Train(ctx context.Context, cfg Config, prompt Prompt) (Profile, error) {
 	var speak speech
 	if cfg.Kokoro.ModelPath != "" {
 		speak = func(rate int) ([]float32, error) { return synthesize(ctx, cfg, trainingSpeech, rate) }
 	}
-	return train(ctx, cfg, prompt, openDevice, speak)
+	var scorer *wakeScorer
+	if cfg.WakeWord != "" && cfg.ORTLibrary != "" {
+		var err error
+		if scorer, err = newWakeScorer(ctx, cfg); err != nil {
+			return Profile{}, fmt.Errorf("talkie: load the wake word models: %w", err)
+		}
+		defer scorer.close()
+	}
+	return train(ctx, cfg, prompt, openDevice, speak, scorer)
 }
 
 // speech returns audio to play at rate while the echo canceller learns.
@@ -92,7 +102,7 @@ func openDevice(c device.Config, cb device.Callback) (duplex, error) {
 	return d, nil
 }
 
-func train(ctx context.Context, cfg Config, prompt Prompt, open opener, speak speech) (Profile, error) {
+func train(ctx context.Context, cfg Config, prompt Prompt, open opener, speak speech, scorer *wakeScorer) (Profile, error) {
 	if prompt == nil {
 		return Profile{}, errors.New("talkie: Train needs a prompt")
 	}
@@ -161,6 +171,13 @@ func train(ctx context.Context, cfg Config, prompt Prompt, open opener, speak sp
 			return Profile{}, err
 		}
 		if p.Canceller, err = learnEcho(heard, played, rate); err != nil {
+			return Profile{}, err
+		}
+	}
+
+	if scorer != nil {
+		var err error
+		if p.Wake, err = trainWake(ctx, prompt, open, dc, scorer); err != nil {
 			return Profile{}, err
 		}
 	}
