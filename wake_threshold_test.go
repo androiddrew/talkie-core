@@ -34,14 +34,21 @@ func TestChooseWakeThreshold(t *testing.T) {
 		{"bound gives way", []float64{0.9999, 0.99999, 0.99995}, 0.98, sigmoid((logit(0.9999) + logit(0.98)) / 2), ""},
 		{"overlapping", []float64{0.5, 0.9, 0.95}, 0.7, 0, "default threshold"},
 		{"too few found", []float64{0.9, 0.95}, 0.1, 0, "only 2 times"},
+		// The user's own training: the 0.08 was said from across the room.
+		// The second weakest, 0.72, sets it: one log-odds below, 0.49.
+		{"one outlier of five", []float64{0.9628, 0.0808, 0.7206, 0.9861, 0.8991}, 0.0013, sigmoid(logit(0.7206) - wakeHeadroom), ""},
+		// With four, every repetition counts.
+		{"four count", []float64{0.9, 0.08, 0.95, 0.99}, 0.0013, sigmoid(logit(0.08) - wakeHeadroom), ""},
 	} {
 		w := chooseWakeThreshold("hey computer", c.positives, c.negativeMax, def)
 		if math.Abs(w.Threshold-c.threshold) > 1e-3 {
 			t.Errorf("%s: threshold %.4f, want %.4f", c.name, w.Threshold, c.threshold)
 		}
-		if w.Threshold > 0 && (w.Threshold <= c.negativeMax || w.Threshold >= slices.Min(c.positives)) {
+		// Between the speech and all but one in five of the repetitions.
+		sorted := slices.Sorted(slices.Values(c.positives))
+		if w.Threshold > 0 && (w.Threshold <= c.negativeMax || w.Threshold >= sorted[len(sorted)/wakeOutliers]) {
 			t.Errorf("%s: threshold %.4f is not between the speech (%.4f) and the wake word (%.4f)",
-				c.name, w.Threshold, c.negativeMax, slices.Min(c.positives))
+				c.name, w.Threshold, c.negativeMax, sorted[len(sorted)/wakeOutliers])
 		}
 		if (c.advice == "") != (w.Advice == "") || !strings.Contains(w.Advice, c.advice) {
 			t.Errorf("%s: advice %q", c.name, w.Advice)

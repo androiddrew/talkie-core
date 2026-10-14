@@ -18,6 +18,7 @@ type WakeProfile struct {
 	Threshold float64
 	// Positives are the scores of the times the user said the wake word;
 	// NegativeMax is the highest score anywhere in their ordinary speech.
+	// The threshold sits below all but one in five of the positives.
 	Positives   []float64
 	NegativeMax float64
 	// Advice says what to change, or is empty.
@@ -45,6 +46,11 @@ const (
 // a lowered threshold stays.
 const wakeHeadroom = 1.0
 
+// wakeOutliers sets how many repetitions may fall below the threshold: one
+// in wakeOutliers, so with five repetitions the weakest is skipped and with
+// three or four none is.
+const wakeOutliers = 5
+
 // chooseWakeThreshold picks the threshold from the user's wake words and
 // their ordinary speech, starting from PhonMatchNet's calibrated
 // defaultThreshold, or returns zero when they can't be separated.
@@ -56,13 +62,19 @@ const wakeHeadroom = 1.0
 // otherwise: it is lowered only as far as their weakest wake word requires,
 // keeping wakeHeadroom below it, and raised to the halfway point when their
 // ordinary speech scores high.
+//
+// "Weakest" skips one repetition in five (wakeOutliers): a word said from
+// across the room or half-swallowed shouldn't drag the threshold down for
+// every other sound. One user's five scored 0.96, 0.08, 0.72, 0.99 and 0.90,
+// the 0.08 from farther away; counting it put the threshold at 0.03.
 func chooseWakeThreshold(keyword string, positives []float64, negativeMax, defaultThreshold float64) WakeProfile {
 	w := WakeProfile{Keyword: keyword, Positives: positives, NegativeMax: negativeMax}
 	if len(positives) < minWakeHeard {
 		w.Advice = fmt.Sprintf("talkie found %q only %d times: train again, saying it clearly with a pause between each time.", keyword, len(positives))
 		return w
 	}
-	weakest := slices.Min(positives)
+	sorted := slices.Sorted(slices.Values(positives))
+	weakest := sorted[len(sorted)/wakeOutliers]
 	gap := logit(weakest) - logit(negativeMax)
 	if gap <= 0 {
 		w.Advice = fmt.Sprintf("Your ordinary speech scored as high as %q (%.2f against %.2f), so talkie keeps PhonMatchNet's default threshold: a longer or more distinctive wake word would be more reliable.",
