@@ -143,6 +143,13 @@ func (c *conversation) event(ev engine.Event) {
 		c.startTurn(ev)
 	case engine.InterruptionDetected:
 		c.interrupt(ev.Playback)
+	case engine.PlaybackFinished:
+		// The reply played to the end: the turn is over. The speaker ends
+		// the playback only after the agent has returned and every sentence
+		// is in the player.
+		if c.turn != nil && ev.Playback.ID == c.turn.id {
+			c.turn = nil
+		}
 	case engine.SessionEnded:
 		c.cancelTurn()
 		c.interrupted = nil

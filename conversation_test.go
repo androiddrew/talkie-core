@@ -209,6 +209,10 @@ func TestConversationTurns(t *testing.T) {
 	if second.Text != "The office." || second.Trigger != TriggerFollowup || second.Session != first.Session {
 		t.Fatalf("second turn %+v", second)
 	}
+	// The question played to the end, so nothing was interrupted.
+	if second.Interrupted != nil {
+		t.Errorf("the second turn says the first reply was interrupted: %+v", *second.Interrupted)
+	}
 	b.spoken()
 	b.silence(1.0)
 	if ended, ok := b.find(engine.SessionEnded); !ok || ended.Reason != "agent" {
