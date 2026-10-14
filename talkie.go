@@ -67,6 +67,13 @@ type Config struct {
 	// their details at Debug.
 	Logger *slog.Logger
 
+	// OnEvent, if set, receives the conversation's events as they happen:
+	// state changes, the wake word, transcripts, replies, interruptions,
+	// latency measurements and errors. It is called on Run's goroutine,
+	// which also runs the audio: return quickly, and hand anything slow to
+	// another goroutine.
+	OnEvent func(Event)
+
 	// DisableEchoCancellation turns off the built-in echo canceller
 	// (go-speexdsp), for a headset or a microphone that is already
 	// echo-cancelled, such as PipeWire's echo-cancel source. Barge-in still
@@ -378,15 +385,23 @@ func logEvents(log *slog.Logger) func(engine.Event) {
 	}
 }
 
-// event handles the conversation's events on Run's goroutine: logging, and
-// checking the measured echo path against the room profile.
+// event handles the conversation's events on Run's goroutine: logging,
+// Config.OnEvent, and checking the measured echo path against the room
+// profile.
 func (t *Talkie) event(ev engine.Event) {
 	if t.log != nil {
 		t.log(ev)
 	}
-	if ev.Type == engine.EchoMeasured && t.drift != nil && t.drift.observe(ev.EchoDelay) && t.cfg.Logger != nil {
-		t.cfg.Logger.Warn("the echo path no longer matches the room profile: the devices, their placement or the room may have changed; train again",
-			"echo_delay", ev.EchoDelay, "trained_min", t.drift.min, "trained_max", t.drift.max)
+	if pub, ok := publicEvent(ev); ok {
+		t.publish(pub)
+	}
+	if ev.Type == engine.EchoMeasured && t.drift != nil && t.drift.observe(ev.EchoDelay) {
+		if t.cfg.Logger != nil {
+			t.cfg.Logger.Warn("the echo path no longer matches the room profile: the devices, their placement or the room may have changed; train again",
+				"echo_delay", ev.EchoDelay, "trained_min", t.drift.min, "trained_max", t.drift.max)
+		}
+		t.publish(Event{Type: EventRoomChanged, At: time.Duration(ev.At) * time.Second / audio.SampleRate, Session: ev.Session,
+			Latency: ev.EchoDelay, EchoGainDB: ev.EchoGainDB})
 	}
 }
 

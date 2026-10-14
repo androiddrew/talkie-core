@@ -173,7 +173,7 @@ func (c *conversation) startTurn(ev engine.Event) {
 	}
 	c.turn, c.last = t, t
 	c.player.Start(t.id)
-	in := Turn{Session: ev.Session, Text: ev.Text, Trigger: Trigger(ev.Trigger), Interrupted: c.interrupted}
+	in := Turn{Session: ev.Session, Reply: t.id, Text: ev.Text, Trigger: Trigger(ev.Trigger), Interrupted: c.interrupted}
 	c.interrupted = nil
 	c.async(t.speak)
 	c.async(func() { t.finish(c.agent.Respond(ctx, in, &Reply{turn: t})) })

@@ -190,6 +190,7 @@ func (t *Talkie) measureChime(ctx context.Context, blocks <-chan block) ([]block
 		return early, 0
 	}
 	t.logInfo("ready chime", "latency", e.Delay, "echo_gain_db", math.Round(e.GainDB*10)/10)
+	t.publish(Event{Type: EventLatency, Latency: e.Delay, LatencySource: LatencyFromChime, EchoGainDB: e.GainDB})
 	return early, e.Delay
 }
 

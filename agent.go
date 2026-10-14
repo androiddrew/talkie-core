@@ -27,6 +27,7 @@ func (f AgentFunc) Respond(ctx context.Context, turn Turn, reply *Reply) error {
 // Turn is one thing the user said.
 type Turn struct {
 	Session string  // the conversation it belongs to
+	Reply   string  // the reply's ID, as in Event.Reply
 	Text    string  // what the user said, with any leading wake phrase removed
 	Trigger Trigger // what opened the utterance
 	// Interrupted is set when the user cut off the previous reply to say
