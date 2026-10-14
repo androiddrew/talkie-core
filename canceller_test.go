@@ -3,9 +3,11 @@ package talkie
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/androiddrew/talkie-core/internal/audio"
 	"github.com/androiddrew/talkie-core/internal/engine"
@@ -102,21 +104,31 @@ func TestRestoredCancellerFirstReply(t *testing.T) {
 }
 
 // TestRunRestoresCanceller: Run's profile restores the canceller, unless
-// echo cancellation is off.
+// echo cancellation is off or the ready chime finds this session's latency
+// far from the trained one.
 func TestRunRestoresCanceller(t *testing.T) {
 	p := trainedProfile(t)
 	dir := t.TempDir()
 	if err := SaveProfile(ProfilePath(dir, p.Input, p.Output), p); err != nil {
 		t.Fatal(err)
 	}
-	for _, off := range []bool{false, true} {
+	for _, c := range []struct {
+		name     string
+		off      bool
+		session  time.Duration
+		restored bool
+	}{
+		{"restored", false, 0, true},
+		{"echo cancellation off", true, 0, false},
+		{"session as trained", false, p.Latency.Median, true},
+		{"slow session", false, p.Latency.Max + 60*time.Millisecond, false},
+	} {
 		var logs bytes.Buffer
 		b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
-		tk := &Talkie{cfg: Config{RoomProfileDir: dir, DisableEchoCancellation: off, Logger: slog.New(slog.NewTextHandler(&logs, nil))}, conv: b.conv}
-		tk.useProfile(p.Input, p.Output)
-		want := "echo_canceller_restored=" + map[bool]string{false: "true", true: "false"}[off]
-		if !strings.Contains(logs.String(), want) {
-			t.Errorf("echo cancellation off %v: log %q", off, logs.String())
+		tk := &Talkie{cfg: Config{RoomProfileDir: dir, DisableEchoCancellation: c.off, Logger: slog.New(slog.NewTextHandler(&logs, nil))}, conv: b.conv}
+		tk.useProfile(p.Input, p.Output, c.session)
+		if want := fmt.Sprintf("echo_canceller_restored=%v", c.restored); !strings.Contains(logs.String(), want) {
+			t.Errorf("%s: log %q", c.name, logs.String())
 		}
 	}
 }

@@ -1,8 +1,11 @@
 package talkie
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +55,7 @@ func TestRun(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	blocks := make(chan block, 4)
-	callback := pump(player, sim.Rate, blocks)
+	callback := pump(player, sim.Rate, blocks, nil)
 	deviceDone := make(chan struct{})
 	go func() { // the device
 		defer close(deviceDone)
@@ -95,7 +98,7 @@ func TestRun(t *testing.T) {
 // would make the VAD fail; the callback clips them.
 func TestPumpCleansMicrophone(t *testing.T) {
 	blocks := make(chan block, 1)
-	cb := pump(audio.NewPlayer(sim.Rate, time.Millisecond), sim.Rate, blocks)
+	cb := pump(audio.NewPlayer(sim.Rate, time.Millisecond), sim.Rate, blocks, nil)
 	in := []float32{0.5, 1.5, -2, float32(nanValue()), 0}
 	cb(in, make([]float32, len(in)))
 	b := <-blocks
@@ -135,7 +138,7 @@ func pumpStaysInRange(t *testing.T, rate int) {
 	player.Add("loud", square, "Loud.")
 	player.End("loud", audio.ThenListen, 0)
 	blocks := make(chan block, 100)
-	cb := pump(player, rate, blocks)
+	cb := pump(player, rate, blocks, nil)
 	period := rate / 50
 	for start := 0; start+period <= len(square); start += period {
 		out := make([]float32, period)
@@ -161,4 +164,72 @@ func rms(x []float32) float64 {
 		sum += float64(s) * float64(s)
 	}
 	return math.Sqrt(sum / float64(max(1, len(x))))
+}
+
+// TestReadyChime runs Run on simulated devices: the ready chime measures the
+// session's latency, which the device's one period adds to the room's delay,
+// and a slow session doesn't restore a canceller trained at another
+// latency. Without an echo, as with a headset, or with the chime turned off,
+// the latency comes from the profile.
+func TestReadyChime(t *testing.T) {
+	dir := t.TempDir()
+	trained := 120 * time.Millisecond
+	p := Profile{Input: "Sim Mic", Output: "Sim Speaker", Latency: LatencyProfile{
+		Runs: []time.Duration{trained}, Min: trained, Median: trained, Max: trained,
+	}}
+	if err := SaveProfile(ProfilePath(dir, p.Input, p.Output), p); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name    string
+		echo    bool
+		delayMS int
+		off     bool
+		want    time.Duration
+		log     string
+	}{
+		{"near trained", true, 105, false, 125 * time.Millisecond, "msg=\"ready chime\""},
+		{"slow open", true, 160, false, 180 * time.Millisecond, "learns the room again"},
+		{"headset", false, 100, false, trained, "did not hear the ready chime"},
+		{"turned off", true, 160, true, trained, "using room profile"},
+	} {
+		var logs syncBuffer
+		b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
+		open, _ := simOpener(c.echo, c.delayMS, -6)
+		tk := &Talkie{cfg: Config{RoomProfileDir: dir, DisableReadyChime: c.off, Logger: slog.New(slog.NewTextHandler(&logs, nil))},
+			conv: b.conv, player: b.player, open: open}
+		ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+		err := tk.Run(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := b.conv.eng.IOLatency(); got < c.want-3*time.Millisecond || got > c.want+3*time.Millisecond {
+			t.Errorf("%s: latency %v, want %v", c.name, got, c.want)
+		}
+		if !strings.Contains(logs.String(), c.log) {
+			t.Errorf("%s: log %q", c.name, logs.String())
+		}
+		if c.off && strings.Contains(logs.String(), "chime") {
+			t.Errorf("%s: chimed: %q", c.name, logs.String())
+		}
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for a logger on another goroutine.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

@@ -213,8 +213,8 @@ func TestProfileStorage(t *testing.T) {
 	}
 }
 
-// TestRunUsesProfile: the profile for the devices sets the latency, unless
-// Config.AudioLatency does, or the profile is ignored.
+// TestRunUsesProfile: the latency comes from Config.AudioLatency, else the
+// session's ready chime, else the profile for the devices.
 func TestRunUsesProfile(t *testing.T) {
 	dir := t.TempDir()
 	p := Profile{Input: "Sim Mic", Output: "Sim Speaker", Latency: LatencyProfile{
@@ -225,19 +225,23 @@ func TestRunUsesProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		name string
-		cfg  Config
-		want time.Duration
+		name    string
+		cfg     Config
+		session time.Duration // measured from the ready chime
+		want    time.Duration
 	}{
-		{"profile", Config{RoomProfileDir: dir}, 150 * time.Millisecond},
-		{"explicit latency wins", Config{RoomProfileDir: dir, AudioLatency: 90 * time.Millisecond}, 90 * time.Millisecond},
-		{"ignored", Config{RoomProfileDir: dir, IgnoreRoomProfile: true}, 0},
-		{"no profile", Config{RoomProfileDir: t.TempDir()}, 0},
+		{"profile", Config{RoomProfileDir: dir}, 0, 150 * time.Millisecond},
+		{"explicit latency wins", Config{RoomProfileDir: dir, AudioLatency: 90 * time.Millisecond}, 0, 90 * time.Millisecond},
+		{"ignored", Config{RoomProfileDir: dir, IgnoreRoomProfile: true}, 0, 0},
+		{"no profile", Config{RoomProfileDir: t.TempDir()}, 0, 0},
+		{"session wins", Config{RoomProfileDir: dir}, 230 * time.Millisecond, 230 * time.Millisecond},
+		{"session without a profile", Config{RoomProfileDir: dir, IgnoreRoomProfile: true}, 230 * time.Millisecond, 230 * time.Millisecond},
+		{"explicit latency over session", Config{RoomProfileDir: dir, AudioLatency: 90 * time.Millisecond}, 230 * time.Millisecond, 90 * time.Millisecond},
 	} {
 		b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
 		b.conv.eng.SetIOLatency(c.cfg.AudioLatency) // as New does
 		tk := &Talkie{cfg: c.cfg, conv: b.conv}
-		tk.useProfile("Sim Mic", "Sim Speaker")
+		tk.useProfile("Sim Mic", "Sim Speaker", c.session)
 		if got := b.conv.eng.IOLatency(); got != c.want {
 			t.Errorf("%s: latency %v, want %v", c.name, got, c.want)
 		}

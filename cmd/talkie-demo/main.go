@@ -45,6 +45,7 @@ func main() {
 		input    = flag.String("input", "", "microphone: part of its name; default device if empty")
 		output   = flag.String("output", "", "speaker: part of its name; default device if empty")
 		noAEC    = flag.Bool("no-echo-cancel", false, "turn off echo cancellation (headset, or an echo-cancelled mic)")
+		noChime  = flag.Bool("no-chime", false, "turn off the ready chime that measures each session's audio latency")
 		latency  = flag.Duration("latency", 0, "speaker-to-microphone round trip (default 100ms)")
 		list     = flag.Bool("list", false, "list audio devices and exit")
 		room     = flag.Bool("train", false, "train talkie to this room and these devices, save the profile, and exit")
@@ -106,6 +107,7 @@ func main() {
 		InputDevice:             *input,
 		OutputDevice:            *output,
 		DisableEchoCancellation: *noAEC,
+		DisableReadyChime:       *noChime,
 		AudioLatency:            *latency,
 		Logger:                  log,
 	}, &parrot{})

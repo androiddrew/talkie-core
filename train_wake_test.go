@@ -106,7 +106,7 @@ func TestRunUsesWakeThreshold(t *testing.T) {
 	for word, want := range map[string]float64{"hey computer": 0.3, "okay robot": 0, "": 0} {
 		b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
 		tk := &Talkie{cfg: Config{RoomProfileDir: dir, WakeWord: word}, conv: b.conv}
-		tk.useProfile(p.Input, p.Output)
+		tk.useProfile(p.Input, p.Output, 0)
 		if tk.wakeThreshold != want {
 			t.Errorf("wake word %q: threshold %v, want %v", word, tk.wakeThreshold, want)
 		}

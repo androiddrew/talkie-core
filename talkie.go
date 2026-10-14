@@ -72,6 +72,12 @@ type Config struct {
 	// echo-cancelled, such as PipeWire's echo-cancel source. Barge-in still
 	// verifies interruptions against the predicted echo.
 	DisableEchoCancellation bool
+
+	// DisableReadyChime turns off the short chime Run plays when it starts.
+	// Run measures each session's audio latency from the chime's echo,
+	// since it can differ between device opens; without it, the latency
+	// comes from the room profile until the first reply measures it.
+	DisableReadyChime bool
 }
 
 // ParakeetConfig locates the Parakeet TDT 0.6B v3 ONNX files.
