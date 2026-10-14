@@ -3,5 +3,8 @@
 // Runtime models (go-phonmatchnet, go-silero-vad, go-parakeet and
 // go-kokoro) running in-process.
 //
-// It is under construction; see the walkie-talkie PLAN.md for the design.
+// New loads the models; Run talks with the user through the audio devices,
+// handing what they say to an Agent and speaking its Reply as it is
+// written. Train measures a room once so Run can start tuned to it, and
+// Config.OnEvent reports what the conversation is doing.
 package talkie
