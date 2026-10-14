@@ -435,9 +435,26 @@ func (e *Engine) confirmBargeIn(trigger Trigger, runStart int64, excess float64)
 	for _, p := range stopped {
 		e.emit(Event{Type: PlaybackStopped, Reason: "interrupted", Playback: p})
 	}
+	e.measureEcho()
 	if runStart >= 0 {
 		e.beginCapture(TriggerBargeIn, runStart, 0)
 	}
+}
+
+// measureEcho reads the echo path the canceller has learned, when the
+// agent's playback ends, and with Echo.TrackLatency times barge-in by it.
+func (e *Engine) measureEcho() {
+	if e.echo == nil {
+		return
+	}
+	delay, gain, ok := e.echo.echoPath()
+	if !ok {
+		return
+	}
+	if e.cfg.Echo.TrackLatency {
+		e.cfg.IOLatency = delay
+	}
+	e.emit(Event{Type: EchoMeasured, EchoDelay: delay, EchoGainDB: round1(gain)})
 }
 
 func (e *Engine) onWake(at int64) {
@@ -493,6 +510,7 @@ func (e *Engine) PlayerEvents(events []audio.Event) {
 				finished.ERLE = e.echo.erle()
 			}
 			e.emit(finished)
+			e.measureEcho()
 			if ev.More || e.state != Speaking {
 				continue
 			}
@@ -534,8 +552,12 @@ func (e *Engine) afterSpeaking(then audio.Then, timeout time.Duration) {
 
 func (e *Engine) stopPlayback(reason string) {
 	e.verify = nil
-	for _, p := range e.deps.Player.Stop() {
+	stopped := e.deps.Player.Stop()
+	for _, p := range stopped {
 		e.emit(Event{Type: PlaybackStopped, Reason: reason, Playback: p})
+	}
+	if len(stopped) > 0 {
+		e.measureEcho()
 	}
 }
 

@@ -101,7 +101,9 @@ type KokoroConfig struct {
 // Talkie is a loaded voice front end for an agent.
 type Talkie struct {
 	cfg     Config
-	open    opener // the audio devices; tests simulate them
+	log     func(engine.Event) // nil without a logger
+	drift   *drift             // nil without a room profile
+	open    opener             // the audio devices; tests simulate them
 	running bool
 	vad     *silerovad.Engine
 	asr     *parakeet.Engine
@@ -120,7 +122,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	if cfg.OutputRate == 0 {
 		cfg.OutputRate = 48000
 	}
-	t := &Talkie{cfg: cfg, open: openDevice}
+	t := &Talkie{cfg: cfg, open: openDevice, log: logEvents(cfg.Logger)}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, t.Close())
@@ -138,6 +140,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	ec := engine.Defaults()
 	ec.Echo.Enabled = !cfg.DisableEchoCancellation
 	ec.IOLatency = cfg.AudioLatency
+	ec.Echo.TrackLatency = cfg.AudioLatency == 0 // an explicit latency wins
 	var listener engine.Wake
 	if cfg.WakeWord != "" {
 		if listener, err = t.loadWake(ctx, cfg); err != nil {
@@ -158,7 +161,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 			r, err := t.asr.Transcribe(ctx, parakeet.Request{Samples: samples, SampleRate: parakeet.SampleRate})
 			return strings.TrimSpace(r.Text), err
 		},
-		onEvent: logEvents(cfg.Logger),
+		onEvent: t.event,
 	})
 	if err != nil {
 		return nil, err
@@ -327,10 +330,62 @@ func logEvents(log *slog.Logger) func(engine.Event) {
 			attrs = append(attrs, "trigger", ev.Trigger, "heard", ev.Playback.Heard, "excess_db", ev.ExcessDB)
 		case engine.InterruptionRejected:
 			attrs = append(attrs, "excess_db", ev.ExcessDB)
+		case engine.EchoMeasured:
+			attrs = append(attrs, "echo_delay", ev.EchoDelay, "echo_gain_db", ev.EchoGainDB)
 		case engine.Error:
 			log.Error(string(ev.Type), append(attrs, "err", ev.Err)...)
 			return
 		}
 		log.Info(string(ev.Type), attrs...)
 	}
+}
+
+// event handles the conversation's events on Run's goroutine: logging, and
+// checking the measured echo path against the room profile.
+func (t *Talkie) event(ev engine.Event) {
+	if t.log != nil {
+		t.log(ev)
+	}
+	if ev.Type == engine.EchoMeasured && t.drift != nil && t.drift.observe(ev.EchoDelay) && t.cfg.Logger != nil {
+		t.cfg.Logger.Warn("the echo path no longer matches the room profile: the devices, their placement or the room may have changed; train again",
+			"echo_delay", ev.EchoDelay, "trained_min", t.drift.min, "trained_max", t.drift.max)
+	}
+}
+
+// drift notices when the measured echo delay keeps falling outside the
+// range training measured.
+type drift struct {
+	min, max time.Duration // the trained range
+	outside  int           // consecutive measurements outside it
+	warned   bool
+}
+
+// Drift settings: how far outside the trained range counts, and how many
+// replies in a row must be outside before warning, so one odd device open
+// doesn't.
+const (
+	driftSlack   = 40 * time.Millisecond
+	driftReplies = 3
+)
+
+func newDrift(l LatencyProfile) *drift {
+	if len(l.Runs) == 0 {
+		return nil
+	}
+	return &drift{min: l.Min, max: l.Max}
+}
+
+// observe takes a measured delay and reports whether to warn now: the
+// first time driftReplies measurements in a row fall outside the range.
+func (d *drift) observe(delay time.Duration) bool {
+	if delay >= d.min-driftSlack && delay <= d.max+driftSlack {
+		d.outside = 0
+		return false
+	}
+	d.outside++
+	if d.outside >= driftReplies && !d.warned {
+		d.warned = true
+		return true
+	}
+	return false
 }

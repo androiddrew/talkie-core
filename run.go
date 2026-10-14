@@ -153,6 +153,7 @@ func (t *Talkie) useProfile(input, output string) {
 	if t.cfg.AudioLatency == 0 && len(p.Latency.Runs) > 0 {
 		t.conv.eng.SetIOLatency(p.Latency.Assumed())
 	}
+	t.drift = newDrift(p.Latency)
 	restored := false
 	if p.Canceller != nil && !t.cfg.DisableEchoCancellation {
 		if err := t.conv.eng.RestoreEcho(p.Canceller.Snapshot); err != nil {

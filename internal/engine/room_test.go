@@ -77,3 +77,74 @@ func TestProfileLatencyCoversSpread(t *testing.T) {
 		}
 	}
 }
+
+// TestEchoPathTracksLatency: after one reply the learned echo path gives
+// the room's delay, and the engine times barge-in by it. A measurement is
+// either right or withheld.
+func TestEchoPathTracksLatency(t *testing.T) {
+	for _, gain := range []float64{-6, 8} {
+		for _, delay := range []int{80, 115, 175, 220} {
+			t.Run(fmt.Sprintf("%+.0fdB/%dms", gain, delay), func(t *testing.T) {
+				h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "x")})
+				h.room = sim.NewRoomDelay(true, delay, gain)
+				startConversation(h)
+				h.play("s1", agentVoice(t, 8.0), "x", audio.ThenListen, 0)
+				h.feed(h.silence(9.0))
+				want := time.Duration(delay) * time.Millisecond
+				if !h.has(EchoMeasured) {
+					if gain <= -6 {
+						t.Fatal("no echo path measured")
+					}
+					t.Logf("withheld; latency stays %v", h.e.IOLatency())
+					return
+				}
+				m := h.find(EchoMeasured, nil)
+				t.Logf("measured %v at %+.1f dB; latency now %v", m.EchoDelay, m.EchoGainDB, h.e.IOLatency())
+				if d := m.EchoDelay - want; d < -time.Millisecond || d > time.Millisecond {
+					t.Errorf("measured %v, room %v", m.EchoDelay, want)
+				}
+				if h.e.IOLatency() != m.EchoDelay {
+					t.Errorf("latency %v after measuring %v", h.e.IOLatency(), m.EchoDelay)
+				}
+			})
+		}
+	}
+}
+
+// TestTrackingStopsSecondSelfInterruption: a loud room whose latency talkie
+// doesn't know (no room profile) interrupts the first reply; the echo path
+// measured then sets the latency, and the second reply plays through.
+func TestTrackingStopsSecondSelfInterruption(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "x", "y")})
+	h.room = sim.NewRoomDelay(true, 175, 8)
+	startConversation(h)
+	h.play("s1", agentVoice(t, 8.0), "x", audio.ThenListen, 0)
+	h.feed(h.silence(9.0))
+	if !h.has(InterruptionDetected) || !h.has(EchoMeasured) {
+		t.Fatalf("the first reply should interrupt itself and measure the echo: %v", h.types())
+	}
+	first := len(h.log)
+	h.e.EndSession("test")
+	h.play("s2", agentVoice(t, 8.0), "y", audio.ThenEnd, 0)
+	h.feed(h.silence(9.0))
+	for _, e := range h.log[first:] {
+		if e.Type == InterruptionDetected {
+			t.Fatalf("the second reply interrupted itself with the latency at %v", h.e.IOLatency())
+		}
+	}
+	t.Logf("latency %v after the first reply; second reply played through", h.e.IOLatency())
+}
+
+// TestTrackLatencyOff: an explicit latency is kept; the echo path is still
+// reported.
+func TestTrackLatencyOff(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "x"),
+		edit: func(c *Config) { c.Echo.TrackLatency = false; c.IOLatency = 150 * time.Millisecond }})
+	h.room = sim.NewRoomDelay(true, 115, -6)
+	startConversation(h)
+	h.play("s1", agentVoice(t, 8.0), "x", audio.ThenListen, 0)
+	h.feed(h.silence(9.0))
+	if !h.has(EchoMeasured) || h.e.IOLatency() != 150*time.Millisecond {
+		t.Errorf("measured %v, latency %v", h.has(EchoMeasured), h.e.IOLatency())
+	}
+}

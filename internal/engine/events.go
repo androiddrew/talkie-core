@@ -51,6 +51,7 @@ const (
 	InterruptionSuspected EventType = "interruption_suspected"
 	InterruptionRejected  EventType = "interruption_rejected"
 	InterruptionDetected  EventType = "interruption_detected"
+	EchoMeasured          EventType = "echo_measured"
 	Error                 EventType = "error"
 )
 
@@ -86,6 +87,11 @@ type Event struct {
 	// ERLE is how much echo the canceller removed during the playback, in
 	// dB, for PlaybackFinished; zero without echo cancellation.
 	ERLE float64
+	// EchoDelay and EchoGainDB are the echo's direct path as the canceller
+	// learned it, for EchoMeasured: the speaker-to-microphone delay and
+	// level. With Echo.TrackLatency, IOLatency is now EchoDelay.
+	EchoDelay  time.Duration
+	EchoGainDB float64
 
 	Err error // Error
 }

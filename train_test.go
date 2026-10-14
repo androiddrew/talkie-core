@@ -1,8 +1,10 @@
 package talkie
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"math"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/androiddrew/talkie-core/internal/device"
+	"github.com/androiddrew/talkie-core/internal/engine"
 	"github.com/androiddrew/talkie-core/internal/sim"
 )
 
@@ -219,5 +222,37 @@ func TestRunUsesProfile(t *testing.T) {
 		if got := b.conv.eng.IOLatency(); got != c.want {
 			t.Errorf("%s: latency %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestDrift(t *testing.T) {
+	d := newDrift(LatencyProfile{Runs: []time.Duration{1}, Min: 115 * time.Millisecond, Max: 117 * time.Millisecond})
+	ms := func(v int) time.Duration { return time.Duration(v) * time.Millisecond }
+	var warnings []int
+	for i, v := range []int{116, 174, 120, 175, 176, 174, 178, 180, 150} {
+		if d.observe(ms(v)) {
+			warnings = append(warnings, i)
+		}
+	}
+	// 174 alone is an odd device open; 175, 176, 174 in a row is a change,
+	// warned about once.
+	if len(warnings) != 1 || warnings[0] != 5 {
+		t.Errorf("warned at %v, want once at 5", warnings)
+	}
+	if newDrift(LatencyProfile{}) != nil {
+		t.Error("drift checking without a trained latency")
+	}
+}
+
+// TestDriftWarning: Talkie logs the drift warning from measured events.
+func TestDriftWarning(t *testing.T) {
+	var logs bytes.Buffer
+	tk := &Talkie{cfg: Config{Logger: slog.New(slog.NewTextHandler(&logs, nil))},
+		drift: newDrift(LatencyProfile{Runs: []time.Duration{1}, Min: 115 * time.Millisecond, Max: 117 * time.Millisecond})}
+	for range driftReplies {
+		tk.event(engine.Event{Type: engine.EchoMeasured, EchoDelay: 200 * time.Millisecond})
+	}
+	if !strings.Contains(logs.String(), "train again") {
+		t.Errorf("log %q", logs.String())
 	}
 }

@@ -101,6 +101,7 @@ func Defaults() Config {
 		Echo: EchoConfig{
 			Enabled: true, Filter: 250 * time.Millisecond, Hold: time.Second,
 			NoiseSuppressDB: -10, EchoSuppressDB: -40, EchoSuppressActiveDB: -15,
+			TrackLatency: true,
 		},
 	}
 }
