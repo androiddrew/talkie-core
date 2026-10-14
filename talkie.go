@@ -43,6 +43,12 @@ type Config struct {
 
 	// OutputRate is the speaker's sample rate; zero selects 48 kHz.
 	OutputRate int
+
+	// DisableEchoCancellation turns off the built-in echo canceller
+	// (go-speexdsp), for a headset or a microphone that is already
+	// echo-cancelled, such as PipeWire's echo-cancel source. Barge-in still
+	// verifies interruptions against the predicted echo.
+	DisableEchoCancellation bool
 }
 
 // ParakeetConfig locates the Parakeet TDT 0.6B v3 ONNX files.
@@ -104,6 +110,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 		return nil, fmt.Errorf("talkie: load Kokoro: %w", err)
 	}
 	ec := engine.Defaults()
+	ec.Echo.Enabled = !cfg.DisableEchoCancellation
 	var listener engine.Wake
 	if cfg.WakeWord != "" {
 		if listener, err = t.loadWake(ctx, cfg); err != nil {

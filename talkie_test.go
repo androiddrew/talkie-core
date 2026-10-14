@@ -84,7 +84,7 @@ func TestRealModels(t *testing.T) {
 	if !ok || fin.Playback.Heard != "Okay. The office lights are on now. Anything else?" {
 		t.Fatalf("finished %+v", fin.Playback)
 	}
-	t.Logf("Kokoro spoke %v", fin.Playback.Played.Round(time.Millisecond))
+	t.Logf("Kokoro spoke %v; the canceller removed %.1f dB of echo", fin.Playback.Played.Round(time.Millisecond), fin.ERLE)
 	if b.conv.eng.State() != engine.Listening {
 		t.Errorf("state %s; want a follow-up window", b.conv.eng.State())
 	}
@@ -94,7 +94,13 @@ func TestRealModels(t *testing.T) {
 // interruption is confirmed against the predicted echo, Parakeet transcribes
 // what the user said, and the agent learns what was heard.
 func TestRealModelsBargeIn(t *testing.T) {
+	t.Run("canceller", func(t *testing.T) { realModelsBargeIn(t, false) })
+	t.Run("verify alone", func(t *testing.T) { realModelsBargeIn(t, true) })
+}
+
+func realModelsBargeIn(t *testing.T, noCanceller bool) {
 	cfg := testConfig(t)
+	cfg.DisableEchoCancellation = noCanceller
 	cfg.WakeWord = "hey mycroft"
 	asked := newTurns()
 	story := []string{

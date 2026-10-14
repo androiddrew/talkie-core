@@ -17,3 +17,6 @@ Test clips in internal/engine/testdata are real speech from openWakeWord
 Test clips in internal/wake/testdata are from go-phonmatchnet v0.1.0's
 fixtures: synthesized with Kokoro-82M v1.0 (Apache-2.0), voice af_heart,
 resampled to 16 kHz.
+
+Echo cancellation uses go-speexdsp (BSD-3-Clause), a Go port of SpeexDSP
+1.2.1's echo canceller and preprocessor, https://github.com/androiddrew/go-speexdsp.

@@ -83,6 +83,9 @@ type Event struct {
 	AgentState State          // InterruptionDetected: speaking or waiting (thinking)
 	ExcessDB   float64        // InterruptionDetected, InterruptionRejected
 	Voiced     float64        // InterruptionRejected
+	// ERLE is how much echo the canceller removed during the playback, in
+	// dB, for PlaybackFinished; zero without echo cancellation.
+	ERLE float64
 
 	Err error // Error
 }

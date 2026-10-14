@@ -27,6 +27,9 @@ import (
 // chunk is the VAD's chunk length: 32 ms.
 const chunk = silerovad.ChunkSamples
 
+// chunkRate is the engine's sample rate.
+const chunkRate = audio.SampleRate
+
 // VAD returns the speech probability of one chunk of ChunkSamples samples.
 type VAD func(samples []float32) (float32, error)
 
@@ -82,6 +85,7 @@ type Engine struct {
 	cfg  Config
 	deps Deps
 
+	echo      *echoStage // nil without echo cancellation
 	ring      *audio.Ring
 	segmenter *silerovad.Segmenter
 	state     State
@@ -121,6 +125,12 @@ func New(cfg Config, deps Deps) (*Engine, error) {
 	e.ring = audio.NewRing(int(samples(held)))
 	if err := e.resetSegmenter(0); err != nil {
 		return nil, err
+	}
+	if cfg.Echo.Enabled {
+		var err error
+		if e.echo, err = newEchoStage(cfg.Echo); err != nil {
+			return nil, fmt.Errorf("echo cancellation: %w", err)
+		}
 	}
 	return e, nil
 }
@@ -167,10 +177,17 @@ func (e *Engine) Session() string { return e.session }
 // ---------------------------------------------------------------- audio
 
 // Audio processes microphone samples. ref is what the speaker played during
-// the same samples, the echo reference; nil means silence.
+// the same samples, the echo reference; nil means silence. With echo
+// cancellation, the engine hears the microphone 16 ms late, cleaned.
 func (e *Engine) Audio(ctx context.Context, mic, ref []float32) error {
 	if len(ref) != len(mic) {
 		ref = make([]float32, len(mic))
+	}
+	if e.echo != nil {
+		var err error
+		if mic, ref, err = e.echo.process(mic, ref); err != nil {
+			return fmt.Errorf("echo cancellation: %w", err)
+		}
 	}
 	e.ring.Write(mic)
 	e.vadBuf = append(e.vadBuf, mic...)
@@ -449,10 +466,17 @@ func (e *Engine) PlayerEvents(events []audio.Event) {
 	for _, ev := range events {
 		switch ev.Kind {
 		case audio.Started:
+			if e.echo != nil {
+				e.echo.resetStats()
+			}
 			e.emit(Event{Type: PlaybackStarted, Playback: ev.Progress})
 			e.enterSpeaking()
 		case audio.Finished:
-			e.emit(Event{Type: PlaybackFinished, Playback: ev.Progress})
+			finished := Event{Type: PlaybackFinished, Playback: ev.Progress}
+			if e.echo != nil {
+				finished.ERLE = e.echo.erle()
+			}
+			e.emit(finished)
 			if ev.More || e.state != Speaking {
 				continue
 			}

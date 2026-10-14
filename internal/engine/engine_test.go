@@ -359,19 +359,21 @@ func TestUserKeepsTalkingWhileTranscribing(t *testing.T) {
 // through the speaker must not count as the user interrupting, and the user
 // talking over the agent still must. The room delays the agent's audio
 // 80 ms, adds reverb and a little distortion, and plays it 6 dB down into
-// the mic. talkie has no echo canceller yet, so these run duck-and-verify
-// alone, wonky's no-AEC configuration.
+// the mic. Each protection is tested alone and together: the echo canceller
+// (go-speexdsp) and duck-and-verify.
+
+func noCanceller(c *Config) { c.Echo.Enabled = false }
 
 func startConversation(h *harness) {
 	wakeThenCommand(h)
 	h.find(Transcript, nil)
 }
 
-func TestEchoInterruptsWithoutVerify(t *testing.T) {
+func TestEchoInterruptsWithoutProtection(t *testing.T) {
 	// Echo, no cancellation and no verification: the agent interrupts itself,
-	// the bug duck-and-verify exists for.
+	// the bug both protections exist for.
 	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "One second."),
-		edit: func(c *Config) { c.BargeIn.Verify = false }})
+		edit: func(c *Config) { c.BargeIn.Verify = false; noCanceller(c) }})
 	startConversation(h)
 	h.play("s1", agentVoice(t, 8.0), "Once upon a time...", audio.ThenListen, 0)
 	h.feed(h.silence(8.5))
@@ -380,8 +382,10 @@ func TestEchoInterruptsWithoutVerify(t *testing.T) {
 	}
 }
 
+// TestVerifyRejectsEcho: without the canceller, duck-and-verify alone
+// catches the echo.
 func TestVerifyRejectsEcho(t *testing.T) {
-	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.")})
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story."), edit: noCanceller})
 	startConversation(h)
 	h.play("s1", agentVoice(t, 8.0), "Once upon a time...", audio.ThenListen, 0)
 	h.feed(h.silence(9.0))
@@ -414,7 +418,12 @@ func TestHeadsetNoSuspicion(t *testing.T) {
 }
 
 func TestUserInterruptsOverEcho(t *testing.T) {
-	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "Stop, that's enough.")})
+	t.Run("canceller", func(t *testing.T) { userInterruptsOverEcho(t, nil) })
+	t.Run("verify alone", func(t *testing.T) { userInterruptsOverEcho(t, noCanceller) })
+}
+
+func userInterruptsOverEcho(t *testing.T, edit func(*Config)) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "Stop, that's enough."), edit: edit})
 	startConversation(h)
 	longAnswer(h, "s1")
 	h.feed(h.silence(3.0)) // the agent talks alone for 3 s
@@ -452,5 +461,50 @@ func TestWakeWordStopsPlaybackImmediately(t *testing.T) {
 	}
 	if !strings.HasPrefix(h.find(PlaybackStopped, nil).Playback.Heard, "Once upon a time,") {
 		t.Error("the first sentence was not reported heard")
+	}
+}
+
+// TestCancellerAndVerifyNoSelfInterruption is the default configuration:
+// the agent talks alone in an echoing room for 8 s without interrupting
+// itself, and the canceller reports how much echo it removed.
+func TestCancellerAndVerifyNoSelfInterruption(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.")})
+	startConversation(h)
+	h.play("s1", agentVoice(t, 8.0), "Once upon a time...", audio.ThenListen, 0)
+	h.feed(h.silence(9.0))
+	if h.has(InterruptionDetected) {
+		t.Fatalf("the agent interrupted itself: %v", h.types())
+	}
+	fin := h.find(PlaybackFinished, nil)
+	if fin.ERLE < 10 {
+		t.Errorf("the canceller removed %.1f dB of echo, want at least 10", fin.ERLE)
+	}
+	t.Logf("echo removed: %.1f dB; suspicions: %d, all rejected", fin.ERLE, h.count(InterruptionSuspected))
+}
+
+// TestCancellerAloneIsNotEnoughAtFirst: the canceller needs time to learn
+// the room, so without verification the start of the first reply still
+// interrupts itself. This is why verification stays on.
+func TestCancellerAloneIsNotEnoughAtFirst(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "x"),
+		edit: func(c *Config) { c.BargeIn.Verify = false }})
+	startConversation(h)
+	h.play("s1", agentVoice(t, 8.0), "Once upon a time...", audio.ThenListen, 0)
+	h.feed(h.silence(8.5))
+	ev := h.find(InterruptionDetected, nil)
+	t.Logf("self-interrupted after %v of playback", ev.Playback.Played)
+}
+
+// TestInterruptRightAtStartOfReply: the canceller has not converged and the
+// user speaks at once; it is still an interruption.
+func TestInterruptRightAtStartOfReply(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "No, wait.")})
+	startConversation(h)
+	longAnswer(h, "s1")
+	h.feed(h.silence(0.4))
+	h.feed(command(t))
+	h.feed(h.silence(1.5))
+	if tr := h.find(Transcript, text("No, wait.")); tr.Trigger != TriggerBargeIn {
+		t.Errorf("transcript trigger %s", tr.Trigger)
 	}
 }

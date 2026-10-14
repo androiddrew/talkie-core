@@ -12,6 +12,7 @@ type Config struct {
 	Session SessionConfig
 	Wake    WakeConfig
 	BargeIn BargeInConfig
+	Echo    EchoConfig
 	// IOLatency is the audio device's microphone-plus-speaker round trip. The
 	// barge-in verify window and the post-speech holdoff wait it out.
 	IOLatency time.Duration
@@ -96,6 +97,10 @@ func Defaults() Config {
 			VerifyDelay: 150 * time.Millisecond, VerifyWindow: 200 * time.Millisecond,
 			VerifyMinFraction: 0.5, VerifyMinExcessDB: 6,
 			RejectCooldown: 700 * time.Millisecond,
+		},
+		Echo: EchoConfig{
+			Enabled: true, Filter: 250 * time.Millisecond, Hold: time.Second,
+			NoiseSuppressDB: -10, EchoSuppressDB: -40, EchoSuppressActiveDB: -15,
 		},
 	}
 }

@@ -7,6 +7,7 @@ require (
 	github.com/androiddrew/go-parakeet v0.1.0
 	github.com/androiddrew/go-phonmatchnet v0.1.0
 	github.com/androiddrew/go-silero-vad v0.1.0
+	github.com/androiddrew/go-speexdsp v0.1.0
 )
 
 require (
