@@ -13,7 +13,7 @@ import (
 )
 
 // testConfig is a Config for the real models, from TALKIE_TEST_ORT,
-// TALKIE_TEST_PARAKEET (the Parakeet directory), TALKIE_TEST_KOKORO (the
+// TALKIE_TEST_PARAKEET (the Parakeet directory, FP32 or else INT8), TALKIE_TEST_KOKORO (the
 // directory with kokoro-v1.0.onnx and voices-v1.0.bin) and, optionally,
 // TALKIE_TEST_CUDA=1.
 func testConfig(t *testing.T) Config {
@@ -25,13 +25,18 @@ func testConfig(t *testing.T) Config {
 	return Config{
 		ORTLibrary: library,
 		CUDA:       os.Getenv("TALKIE_TEST_CUDA") == "1",
-		Parakeet:   ParakeetConfig{Dir: asr},
+		Parakeet:   ParakeetConfig{Dir: asr, INT8: !exists(filepath.Join(asr, "encoder-model.onnx"))},
 		Kokoro: KokoroConfig{
 			ModelPath:  filepath.Join(tts, "kokoro-v1.0.onnx"),
 			VoicesPath: filepath.Join(tts, "voices-v1.0.bin"),
 		},
 		OutputRate: sim.Rate, // the simulated room's speaker
 	}
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // TestRealModels runs a whole conversation on the real models: the user

@@ -16,13 +16,38 @@ on ONNX Runtime:
 Audio devices go through [malgo](https://github.com/gen2brain/malgo) (miniaudio).
 
 ## Requirements
-- Go 1.25 with CGO.
-- ONNX Runtime 1.22. Use a CUDA 12 build to run speech-to-text and text-to-speech on the GPU.
-- The model files. These are not embedded; see the links below.
-  - Parakeet: see go-parakeet's [ASSETS.md](https://github.com/androiddrew/go-parakeet/blob/main/ASSETS.md). The INT8 files are smaller and faster on CPU.
-  - Kokoro: see go-kokoro's [ASSETS.md](https://github.com/androiddrew/go-kokoro/blob/main/ASSETS.md).
-  - Silero VAD and PhonMatchNet are embedded in their libraries.
-- Linux. It has been tested on a desktop with PipeWire. miniaudio also supports macOS and Windows, but talkie hasn't been tried there.
+- Go 1.25 and a C compiler: talkie uses CGO for ONNX Runtime and audio.
+- Linux on x86-64, with a microphone and speaker. It has been tested on a desktop with PipeWire. miniaudio also supports macOS and Windows, but talkie hasn't been tried there.
+- ONNX Runtime 1.22, and the Parakeet and Kokoro model files (about 1 GB). `scripts/get-assets.sh` downloads them; see below.
+- Optional: an NVIDIA GPU with CUDA 12 and cuDNN 9, to run speech-to-text and text-to-speech on the GPU.
+
+## Getting started
+1. **Download ONNX Runtime and the models** into `./assets`. Every file is pinned and checked against its SHA256, and running it again resumes or skips what is already there:
+   ```
+   scripts/get-assets.sh            # CPU, Parakeet INT8: about 1 GB
+   scripts/get-assets.sh --cuda     # GPU build of ONNX Runtime
+   scripts/get-assets.sh --cuda --fp32   # plus Parakeet FP32: about 3 GB
+   ```
+   It prints the exact commands for the next two steps. Silero VAD and the wake word model are embedded in their Go libraries, so there is nothing else to download. Where the files come from:
+   - Parakeet: go-parakeet's [ASSETS.md](https://github.com/androiddrew/go-parakeet/blob/main/ASSETS.md);
+   - Kokoro: go-kokoro's [ASSETS.md](https://github.com/androiddrew/go-kokoro/blob/main/ASSETS.md);
+   - ONNX Runtime: [v1.22.0](https://github.com/microsoft/onnxruntime/releases/tag/v1.22.0).
+
+   On another platform, such as a Jetson, install ONNX Runtime yourself and use `--no-ort`.
+2. **Train talkie to your room**, once per microphone and speaker. This takes about a minute: stay quiet while it measures the room, then say the wake word ("hey computer") five times and read a sentence aloud.
+   ```
+   go run ./cmd/talkie-demo -train -ort assets/onnxruntime/lib/libonnxruntime.so -kokoro assets/kokoro
+   ```
+3. **Talk to it:**
+   ```
+   go run ./cmd/talkie-demo -ort assets/onnxruntime/lib/libonnxruntime.so \
+       -parakeet assets/parakeet -int8 -kokoro assets/kokoro
+   ```
+   A short chime means it's listening.
+   - Say "hey computer, what time is it?" and it repeats what it heard.
+   - "Hey computer, tell me a story" gives a long reply. Interrupt it with "hey computer", or by pressing Enter.
+
+   Add `-cuda` if you downloaded the GPU build. Leave out `-int8` if you downloaded `--fp32`.
 
 ## Quick start
 ```go
@@ -100,8 +125,8 @@ It is called on the goroutine that runs the audio: return quickly. `Config.Logge
 ## Demo
 `cmd/talkie-demo` is a toy agent that repeats what it heard and tells a story to interrupt:
 ```
-go run ./cmd/talkie-demo -train -ort $ORT -kokoro /models/kokoro   # once per room
-go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet /models/parakeet -kokoro /models/kokoro
+go run ./cmd/talkie-demo -train -ort $ORT -kokoro assets/kokoro   # once per room
+go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet assets/parakeet -kokoro assets/kokoro
 ```
 - Useful flags:
   - `-list` lists the devices; `-input` and `-output` pick them;
@@ -113,7 +138,7 @@ go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet /models/parakeet -kokoro /mod
 ## Tests
 - `go test ./...` runs everything that needs no native library.
 - `TALKIE_TEST_ORT=/path/libonnxruntime.so` adds the conversation scenarios: real Silero VAD, a simulated room with echo, and recorded speech.
-- `TALKIE_TEST_PARAKEET` (the directory) and `TALKIE_TEST_KOKORO` (the directory with both files) add whole conversations through the real models. Add `TALKIE_TEST_CUDA=1` to use the GPU.
+- `TALKIE_TEST_PARAKEET` (the directory, FP32 or INT8) and `TALKIE_TEST_KOKORO` (the directory with both files) add whole conversations through the real models. Add `TALKIE_TEST_CUDA=1` to use the GPU.
 
 ## License
 Apache-2.0; see LICENSE and NOTICE. The models have their own licenses; see each library's ASSETS.md.

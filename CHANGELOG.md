@@ -18,3 +18,4 @@ First release.
 - A ready chime measures each session's audio latency. Each reply's echo is measured again, and a room change is reported.
 - `Config.OnEvent`: state changes, transcripts, replies, interruptions, latency and errors.
 - `cmd/talkie-demo`: a toy agent for trying talkie in a real room.
+- `scripts/get-assets.sh`: downloads ONNX Runtime 1.22 (CPU or CUDA) and the pinned Parakeet and Kokoro files, checked against SHA256.
