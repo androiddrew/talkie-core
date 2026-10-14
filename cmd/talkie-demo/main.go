@@ -5,8 +5,10 @@
 //	go run ./cmd/talkie-demo -ort /path/to/libonnxruntime.so \
 //	    -parakeet /path/to/parakeet -kokoro /path/to/kokoro -wake "hey computer"
 //
-// Say the wake word, then something. Interrupt the reply by talking over it.
-// Press Enter to talk without the wake word. Say "goodbye" to end the session.
+// Say the wake word, then something, and it repeats what it heard. Say "tell
+// me a story" for a long reply to interrupt by talking over it; say "continue"
+// afterwards to pick it up from the sentence you cut off. Press Enter to talk
+// without the wake word. Say "goodbye" to end the session.
 package main
 
 import (
@@ -14,11 +16,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	talkie "github.com/androiddrew/talkie-core"
 	"github.com/androiddrew/talkie-core/internal/device"
@@ -83,7 +88,7 @@ func main() {
 		DisableEchoCancellation: *noAEC,
 		AudioLatency:            *latency,
 		Logger:                  log,
-	}, talkie.AgentFunc(parrot))
+	}, &parrot{})
 	if err != nil {
 		fail(err)
 	}
@@ -105,20 +110,92 @@ func main() {
 	}
 }
 
-// parrot repeats what it heard. When it was interrupted, it says how much
-// of its last reply was heard, as an agent would correct its history.
-func parrot(ctx context.Context, turn talkie.Turn, reply *talkie.Reply) error {
+// story is long enough to interrupt: about 45 seconds of speech.
+var story = []string{
+	"Once upon a time, in a small house at the edge of a quiet forest, there lived a little robot named Pim.",
+	"Pim had one job, which was to listen.",
+	"Every morning it listened to the birds, and every evening it listened to the wind in the tall pines.",
+	"It listened so carefully that it could tell a sparrow from a finch by the sound of their wings.",
+	"One night, a storm rolled over the hills, and the rain drummed on the roof until morning.",
+	"Pim listened to every drop, and counted them, and was very happy.",
+	"But when the sun came up, the rain stopped, and the forest was strangely still.",
+	"Pim listened as hard as it could, and heard nothing at all.",
+	"So it walked out into the forest, farther than it had ever gone before.",
+	"Deep among the trees it found a fox, sitting by a stream, humming a song that nobody had ever heard.",
+	"Pim sat down beside the fox and listened until the stars came out.",
+	"And from that day on, Pim knew that the best sounds are the ones you go out and find.",
+}
+
+// parrot repeats what it heard. It tells a story on request, stops when
+// interrupted, and can pick the story up again from the sentence the user
+// cut off, as an agent keeping a history would use Turn.Interrupted.
+type parrot struct {
+	mu   sync.Mutex
+	rest []string // the interrupted story, from the sentence that was cut off
+}
+
+func (p *parrot) Respond(ctx context.Context, turn talkie.Turn, reply *talkie.Reply) error {
 	if in := turn.Interrupted; in != nil {
-		slog.Info("interrupted", "heard", in.Heard, "cut", in.Cut, "unspoken", in.Unspoken)
+		slog.Info("interrupted", "played", in.Played.Round(time.Millisecond), "heard", in.Heard, "cut", in.Cut, "unspoken", in.Unspoken)
 	}
+	return p.answer(ctx, turn, reply, reply.Then)
+}
+
+// answer writes the reply to w, a sentence at a time with a pause between,
+// as a streaming LLM would.
+func (p *parrot) answer(ctx context.Context, turn talkie.Turn, w io.Writer, then func(talkie.Then)) error {
 	text := strings.TrimRight(turn.Text, ".!? ")
-	if strings.Contains(strings.ToLower(text), "goodbye") {
-		reply.Then(talkie.ThenEnd)
-		_, err := reply.WriteString("Goodbye!")
-		return err
+	lower := strings.ToLower(text)
+	p.mu.Lock()
+	if in := turn.Interrupted; in != nil && in.Cut+in.Unspoken != "" {
+		p.rest = remaining(in)
 	}
-	_, err := fmt.Fprintf(reply, "You said: %s. What else?", text)
-	return err
+	var sentences []string
+	switch {
+	case strings.Contains(lower, "goodbye"):
+		then(talkie.ThenEnd)
+		sentences = []string{"Goodbye!"}
+	case strings.Contains(lower, "story"):
+		sentences = story
+		p.rest = nil
+	case len(p.rest) > 0 && (strings.Contains(lower, "continue") || strings.Contains(lower, "go on")):
+		sentences = p.rest
+		p.rest = nil
+	case turn.Interrupted != nil && turn.Interrupted.Played > 0:
+		sentences = []string{"Okay, I'll stop. You said: " + text + "."}
+		if len(p.rest) > 0 {
+			sentences = append(sentences, "Say continue to hear the rest.")
+		}
+	default:
+		sentences = []string{"You said: " + text + ".", "What else?"}
+	}
+	p.mu.Unlock()
+	for _, s := range sentences {
+		if _, err := io.WriteString(w, s+" "); err != nil {
+			return err // interrupted
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+// remaining returns the story sentences from the one that was cut off, or
+// from the first unspoken one.
+func remaining(in *talkie.Interruption) []string {
+	from := strings.TrimSpace(in.Cut)
+	if from == "" {
+		from = strings.TrimSpace(in.Unspoken)
+	}
+	for i, s := range story {
+		if strings.HasPrefix(from, s) {
+			return story[i:]
+		}
+	}
+	return nil
 }
 
 func fail(err error) {
