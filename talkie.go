@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,6 +45,22 @@ type Config struct {
 	// OutputRate is the speaker's sample rate; zero selects 48 kHz.
 	OutputRate int
 
+	// InputDevice and OutputDevice select the microphone and speaker by a
+	// case-insensitive substring of their names; empty selects the system
+	// defaults. OutputRate is the rate both run at.
+	InputDevice, OutputDevice string
+
+	// AudioLatency is the audio devices' round trip, from writing a sample
+	// to the speaker to hearing it at the microphone. Barge-in waits it out
+	// before judging a voice against the agent's echo, and the follow-up
+	// window ignores the agent's last words for that long. Zero assumes
+	// 100 ms; PipeWire and Bluetooth devices are often slower.
+	AudioLatency time.Duration
+
+	// Logger, if set, receives the conversation's events at Info level and
+	// their details at Debug.
+	Logger *slog.Logger
+
 	// DisableEchoCancellation turns off the built-in echo canceller
 	// (go-speexdsp), for a headset or a microphone that is already
 	// echo-cancelled, such as PipeWire's echo-cancel source. Barge-in still
@@ -77,12 +94,14 @@ type KokoroConfig struct {
 
 // Talkie is a loaded voice front end for an agent.
 type Talkie struct {
-	vad    *silerovad.Engine
-	asr    *parakeet.Engine
-	tts    *text.Pipeline
-	wake   *phonmatchnet.Engine
-	player *audio.Player
-	conv   *conversation
+	cfg     Config
+	running bool
+	vad     *silerovad.Engine
+	asr     *parakeet.Engine
+	tts     *text.Pipeline
+	wake    *phonmatchnet.Engine
+	player  *audio.Player
+	conv    *conversation
 }
 
 // New loads the models and returns a front end that hands what the user says
@@ -94,7 +113,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	if cfg.OutputRate == 0 {
 		cfg.OutputRate = 48000
 	}
-	t := &Talkie{}
+	t := &Talkie{cfg: cfg}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, t.Close())
@@ -111,6 +130,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	}
 	ec := engine.Defaults()
 	ec.Echo.Enabled = !cfg.DisableEchoCancellation
+	ec.IOLatency = cfg.AudioLatency
 	var listener engine.Wake
 	if cfg.WakeWord != "" {
 		if listener, err = t.loadWake(ctx, cfg); err != nil {
@@ -131,6 +151,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 			r, err := t.asr.Transcribe(ctx, parakeet.Request{Samples: samples, SampleRate: parakeet.SampleRate})
 			return strings.TrimSpace(r.Text), err
 		},
+		onEvent: logEvents(cfg.Logger),
 	})
 	if err != nil {
 		return nil, err
@@ -274,4 +295,35 @@ func (v *kokoroVoice) Speak(ctx context.Context, sentence string, yield func([]f
 		}
 	}
 	return yield(make([]float32, v.pause))
+}
+
+// logEvents logs the engine's events, or nothing without a logger.
+func logEvents(log *slog.Logger) func(engine.Event) {
+	if log == nil {
+		return nil
+	}
+	return func(ev engine.Event) {
+		attrs := []any{"session", ev.Session, "at", time.Duration(ev.At) * time.Second / audio.SampleRate}
+		switch ev.Type {
+		case engine.StateChanged:
+			log.Debug(string(ev.Type), append(attrs, "from", ev.From, "to", ev.To)...)
+			return
+		case engine.Transcript:
+			attrs = append(attrs, "text", ev.Text, "trigger", ev.Trigger, "stt", ev.STTTime.Round(time.Millisecond))
+		case engine.SessionStarted, engine.ListeningStarted, engine.SpeechStarted:
+			attrs = append(attrs, "trigger", ev.Trigger)
+		case engine.SessionEnded, engine.UtteranceDiscarded, engine.SilenceDetected, engine.PlaybackStopped:
+			attrs = append(attrs, "reason", ev.Reason)
+		case engine.PlaybackFinished:
+			attrs = append(attrs, "played", ev.Playback.Played.Round(time.Millisecond), "echo_removed_db", ev.ERLE)
+		case engine.InterruptionDetected:
+			attrs = append(attrs, "trigger", ev.Trigger, "heard", ev.Playback.Heard, "excess_db", ev.ExcessDB)
+		case engine.InterruptionRejected:
+			attrs = append(attrs, "excess_db", ev.ExcessDB)
+		case engine.Error:
+			log.Error(string(ev.Type), append(attrs, "err", ev.Err)...)
+			return
+		}
+		log.Info(string(ev.Type), attrs...)
+	}
 }

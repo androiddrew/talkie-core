@@ -20,3 +20,6 @@ resampled to 16 kHz.
 
 Echo cancellation uses go-speexdsp (BSD-3-Clause), a Go port of SpeexDSP
 1.2.1's echo canceller and preprocessor, https://github.com/androiddrew/go-speexdsp.
+
+Audio devices use malgo (Unlicense, public domain), Go bindings for
+miniaudio (public domain or MIT-0), https://github.com/gen2brain/malgo.
