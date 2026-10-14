@@ -23,8 +23,7 @@ func Example() {
 			ModelPath:  "/models/kokoro/kokoro-v1.0.onnx",
 			VoicesPath: "/models/kokoro/voices-v1.0.bin",
 		},
-		WakeWord: "hey computer",
-		BargeIn:  talkie.BargeInWakeWord,
+		WakeWord: "hey computer", // also interrupts the reply
 		OnEvent: func(ev talkie.Event) {
 			if ev.Type == talkie.EventState {
 				log.Println(ev.State) // drive a status light

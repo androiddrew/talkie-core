@@ -81,8 +81,8 @@ type Config struct {
 	DisableEchoCancellation bool
 
 	// BargeIn sets how the user can interrupt the agent by voice; the zero
-	// value, BargeInVoice, allows talking over it or saying the wake word.
-	// Talkie.Interrupt works whatever it is set to.
+	// value, BargeInWakeWord, allows only the wake word, so the agent's own
+	// echo can't interrupt it. Talkie.Interrupt works whatever it is set to.
 	BargeIn BargeIn
 
 	// DisableReadyChime turns off the short chime Run plays when it starts.
@@ -121,12 +121,14 @@ type KokoroConfig struct {
 type BargeIn int
 
 const (
-	// BargeInVoice interrupts when the user talks over the agent or says
-	// the wake word.
-	BargeInVoice BargeIn = iota
-	// BargeInWakeWord interrupts only on the wake word: the agent's own
-	// echo can't interrupt it, and the user needs the wake word to.
-	BargeInWakeWord
+	// BargeInWakeWord, the default, interrupts only on the wake word: the
+	// agent's own echo can't interrupt it, and the user needs the wake word
+	// to. Without Config.WakeWord, nothing interrupts by voice.
+	BargeInWakeWord BargeIn = iota
+	// BargeInVoice also interrupts when the user talks over the agent. A
+	// loud speaker can make the agent interrupt itself; room training says
+	// when to turn it down.
+	BargeInVoice
 	// BargeInOff never interrupts by voice: replies play to the end unless
 	// the application calls Talkie.Interrupt, as from a key or a button.
 	BargeInOff
@@ -160,7 +162,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	if cfg.OutputRate == 0 {
 		cfg.OutputRate = 48000
 	}
-	if cfg.BargeIn < BargeInVoice || cfg.BargeIn > BargeInOff {
+	if cfg.BargeIn < BargeInWakeWord || cfg.BargeIn > BargeInOff {
 		return nil, fmt.Errorf("talkie: unknown BargeIn %d", cfg.BargeIn)
 	}
 	t := &Talkie{cfg: cfg, open: openDevice, log: logEvents(cfg.Logger)}

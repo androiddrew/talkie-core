@@ -9,7 +9,7 @@ First release.
   - CUDA for speech to text and text to speech.
 - `Agent`, `Turn` and `Reply`: replies are spoken a sentence at a time as they stream in. `Turn.Interrupted` says how much of an interrupted reply the user heard.
 - Barge-in:
-  - `Config.BargeIn` chooses voice, wake word only, or off;
+  - `Config.BargeIn` chooses wake word only (the default), voice, or off;
   - duck-and-verify against the predicted echo;
   - echo cancellation through go-speexdsp;
   - the agent's own wake word is ignored;

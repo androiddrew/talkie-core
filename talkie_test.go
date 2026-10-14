@@ -101,6 +101,7 @@ func TestRealModelsBargeIn(t *testing.T) {
 func realModelsBargeIn(t *testing.T, noCanceller bool) {
 	cfg := testConfig(t)
 	cfg.DisableEchoCancellation = noCanceller
+	cfg.BargeIn = BargeInVoice // talking over the reply
 	cfg.WakeWord = "hey mycroft"
 	asked := newTurns()
 	story := []string{

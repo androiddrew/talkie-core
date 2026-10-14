@@ -39,8 +39,7 @@ t, err := talkie.New(ctx, talkie.Config{
         ModelPath:  "/models/kokoro/kokoro-v1.0.onnx",
         VoicesPath: "/models/kokoro/voices-v1.0.bin",
     },
-    WakeWord: "hey computer",
-    BargeIn:  talkie.BargeInWakeWord,
+    WakeWord: "hey computer", // also interrupts the reply
 }, agent)
 if err != nil {
     return err
@@ -67,10 +66,11 @@ talkie calls `Agent.Respond` once for each thing the user says. It runs on its o
 
 ## Barge-in
 `Config.BargeIn` chooses what interrupts the agent by voice:
-- **`BargeInVoice`** (the zero value): the user talks over it, or says the wake word.
+- **`BargeInWakeWord`** (the zero value): only the wake word. The agent's own voice can't interrupt it. Without a wake word, nothing interrupts by voice.
+- **`BargeInVoice`**: the user can also talk over it.
   - A suspected interruption briefly ducks the reply and checks that the voice stays louder than the reply's predicted echo.
   - The echo canceller removes most of the reply from the microphone.
-- **`BargeInWakeWord`**: only the wake word. The agent's own voice can't interrupt it.
+  - A loud speaker can still make the agent interrupt itself. Room training says when to turn it down.
 - **`BargeInOff`**: replies play to the end.
 
 `Talkie.Interrupt` stops the agent in any mode, for a key or a button. When nothing is playing, it starts listening as push-to-talk does (`Talkie.Listen`). A wake word the agent itself just said is ignored.
@@ -101,11 +101,11 @@ It is called on the goroutine that runs the audio: return quickly. `Config.Logge
 `cmd/talkie-demo` is a toy agent that repeats what it heard and tells a story to interrupt:
 ```
 go run ./cmd/talkie-demo -train -ort $ORT -kokoro /models/kokoro   # once per room
-go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet /models/parakeet -kokoro /models/kokoro -barge-in wake
+go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet /models/parakeet -kokoro /models/kokoro
 ```
 - Useful flags:
   - `-list` lists the devices; `-input` and `-output` pick them;
-  - `-barge-in voice|wake|off`;
+  - `-barge-in wake|voice|off` (default `wake`);
   - `-key` reads a keyboard's event device so the Pause key interrupts;
   - `-v` logs every state change.
 - Enter interrupts, or talks without the wake word.

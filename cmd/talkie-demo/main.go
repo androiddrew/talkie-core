@@ -10,13 +10,13 @@
 // so its echo canceller learns the room.
 //
 // Say the wake word, then something, and it repeats what it heard. Say "tell
-// me a story" for a long reply to interrupt by talking over it; say "continue"
+// me a story" for a long reply to interrupt by saying the wake word; say "continue"
 // afterwards to pick it up from the sentence you cut off. Press Enter to
 // interrupt it, or to talk without the wake word. Say "goodbye" to end the
 // session.
 //
-// -barge-in sets what interrupts by voice: "voice" (talking over it or the
-// wake word), "wake" (only the wake word) or "off" (nothing; only Enter, or
+// -barge-in sets what interrupts by voice: "wake" (only the wake word, the
+// default), "voice" (talking over it too) or "off" (nothing; only Enter, or
 // the Pause key with -key). -key reads a keyboard directly, such as
 // /dev/input/by-id/...-event-kbd, so Pause works without the terminal in
 // focus; it needs read access to the device (the input group).
@@ -52,7 +52,7 @@ func main() {
 		input    = flag.String("input", "", "microphone: part of its name; default device if empty")
 		output   = flag.String("output", "", "speaker: part of its name; default device if empty")
 		noAEC    = flag.Bool("no-echo-cancel", false, "turn off echo cancellation (headset, or an echo-cancelled mic)")
-		barge    = flag.String("barge-in", "voice", `what interrupts the agent by voice: "voice", "wake" or "off"`)
+		barge    = flag.String("barge-in", "wake", `what interrupts the agent by voice: "wake", "voice" or "off"`)
 		key      = flag.String("key", "", "keyboard event device whose Pause key interrupts, e.g. /dev/input/by-id/...-event-kbd")
 		noChime  = flag.Bool("no-chime", false, "turn off the ready chime that measures each session's audio latency")
 		latency  = flag.Duration("latency", 0, "speaker-to-microphone round trip (default 100ms)")
@@ -94,9 +94,9 @@ func main() {
 	if *ort == "" || *parakeet == "" || *kokoro == "" {
 		fail(fmt.Errorf("-ort, -parakeet and -kokoro are required (see -h)"))
 	}
-	bargeIn, ok := map[string]talkie.BargeIn{"voice": talkie.BargeInVoice, "wake": talkie.BargeInWakeWord, "off": talkie.BargeInOff}[*barge]
+	bargeIn, ok := map[string]talkie.BargeIn{"wake": talkie.BargeInWakeWord, "voice": talkie.BargeInVoice, "off": talkie.BargeInOff}[*barge]
 	if !ok {
-		fail(fmt.Errorf(`-barge-in is "voice", "wake" or "off", not %q`, *barge))
+		fail(fmt.Errorf(`-barge-in is "wake", "voice" or "off", not %q`, *barge))
 	}
 	level := slog.LevelInfo
 	if *verbose {

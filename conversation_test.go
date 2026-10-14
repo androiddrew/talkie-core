@@ -309,6 +309,9 @@ func TestKeyInterruptsReply(t *testing.T) {
 }
 
 func TestBargeInModes(t *testing.T) {
+	if (Config{}).BargeIn != BargeInWakeWord {
+		t.Error("the default is not wake word only")
+	}
 	d := engine.Defaults().BargeIn
 	if c := bargeIn(d, BargeInVoice); c != d {
 		t.Errorf("voice %+v", c)
