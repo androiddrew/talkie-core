@@ -7,7 +7,7 @@ require (
 	github.com/androiddrew/go-parakeet v0.1.0
 	github.com/androiddrew/go-phonmatchnet v0.1.0
 	github.com/androiddrew/go-silero-vad v0.1.0
-	github.com/androiddrew/go-speexdsp v0.1.0
+	github.com/androiddrew/go-speexdsp v0.2.0
 	github.com/gen2brain/malgo v0.11.26
 )
 
@@ -20,5 +20,3 @@ require (
 	github.com/yuin/goldmark v1.8.6 // indirect
 	golang.org/x/text v0.41.0 // indirect
 )
-
-replace github.com/androiddrew/go-speexdsp => ../go-speexdsp

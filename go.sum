@@ -8,6 +8,8 @@ github.com/androiddrew/go-phonmatchnet v0.1.0 h1:96tAs36WT+c6lu65vGKfKismouZqWI/
 github.com/androiddrew/go-phonmatchnet v0.1.0/go.mod h1:zEWbtmZeTm+3+we/Ur+Vfpym3uh9Y6mG5/igI5kMpIg=
 github.com/androiddrew/go-silero-vad v0.1.0 h1:5JVZWj6hvax17zpsouLNGw1yXGkih3HmCOMsAur+uRY=
 github.com/androiddrew/go-silero-vad v0.1.0/go.mod h1:+k9XS5Xpk7NIs1tLSJo9lZTgxArUFsKjsZ7NXdQuGyA=
+github.com/androiddrew/go-speexdsp v0.2.0 h1:5AZNRKE8Pq4n3mNRQSTpTdfDbQ7zEfHLAthWZEyng/A=
+github.com/androiddrew/go-speexdsp v0.2.0/go.mod h1:J3w8SWGgFgnltAzYrjrKV3nu8nY3GZCuHEEr2JH3K24=
 github.com/androiddrew/go-ttsnorm v0.1.0 h1:AvHgQSBASTYvAfx7/W9dUwQX3unPNqnJKUIUshuWFmw=
 github.com/androiddrew/go-ttsnorm v0.1.0/go.mod h1:kydShs9zfWe52MR1/zkDWp4Obviu4cemH48VaJasPIo=
 github.com/androiddrew/ortenv v0.2.0 h1:qYhIAAOy2HJyc4FHGmdbq3dk41RpiBQxlncMcDKAehA=
