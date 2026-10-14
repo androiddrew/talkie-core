@@ -92,7 +92,7 @@ func TestTrain(t *testing.T) {
 		p, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(_ context.Context, s Step) error {
 			steps = append(steps, s.Name)
 			return nil
-		}, open)
+		}, open, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +131,7 @@ func TestTrain(t *testing.T) {
 // TestTrainHeadset: the microphone never hears the speaker.
 func TestTrainHeadset(t *testing.T) {
 	open, _ := simOpener(false, 80, -6)
-	p, err := train(t.Context(), Config{OutputRate: sim.Rate}, ready, open)
+	p, err := train(t.Context(), Config{OutputRate: sim.Rate}, ready, open, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,12 +143,12 @@ func TestTrainHeadset(t *testing.T) {
 func TestTrainStops(t *testing.T) {
 	open, opens := simOpener(true, 80, -6)
 	stop := errors.New("not now")
-	if _, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(context.Context, Step) error { return stop }, open); !errors.Is(err, stop) || *opens != 0 {
+	if _, err := train(t.Context(), Config{OutputRate: sim.Rate}, func(context.Context, Step) error { return stop }, open, nil); !errors.Is(err, stop) || *opens != 0 {
 		t.Errorf("err %v after %d opens", err, *opens)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := train(ctx, Config{OutputRate: sim.Rate}, ready, open); !errors.Is(err, context.Canceled) {
+	if _, err := train(ctx, Config{OutputRate: sim.Rate}, ready, open, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled: %v", err)
 	}
 	if _, err := Train(t.Context(), Config{}, nil); err == nil {

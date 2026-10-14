@@ -153,8 +153,18 @@ func (t *Talkie) useProfile(input, output string) {
 	if t.cfg.AudioLatency == 0 && len(p.Latency.Runs) > 0 {
 		t.conv.eng.SetIOLatency(p.Latency.Assumed())
 	}
+	restored := false
+	if p.Canceller != nil && !t.cfg.DisableEchoCancellation {
+		if err := t.conv.eng.RestoreEcho(p.Canceller.Snapshot); err != nil {
+			if log != nil {
+				log.Warn("room profile's echo canceller not used: train again", "err", err)
+			}
+		} else {
+			restored = true
+		}
+	}
 	if log != nil {
-		log.Info("using room profile", "trained", p.Trained.Format(time.DateOnly), "latency", t.conv.eng.IOLatency(), "echo_gain_db", p.Echo.GainDB)
+		log.Info("using room profile", "trained", p.Trained.Format(time.DateOnly), "latency", t.conv.eng.IOLatency(), "echo_gain_db", p.Echo.GainDB, "echo_canceller_restored", restored)
 		if p.Echo.Advice != "" {
 			log.Warn(p.Echo.Advice)
 		}

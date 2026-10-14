@@ -54,8 +54,19 @@ type echoStage struct {
 	in, out float64
 }
 
+// NewCanceller returns an echo canceller configured as the engine's, for
+// training one whose Snapshot the engine can restore. Feed it 16 kHz
+// microphone and speaker frames of EchoFrame samples, aligned as Audio
+// receives them.
+func NewCanceller(c EchoConfig) (*echo.Canceller, error) {
+	return echo.New(echoFrame, int(samples(c.Filter)), chunkRate)
+}
+
+// EchoFrame is the echo canceller's frame length in 16 kHz samples.
+const EchoFrame = echoFrame
+
 func newEchoStage(c EchoConfig) (*echoStage, error) {
-	canceller, err := echo.New(echoFrame, int(samples(c.Filter)), chunkRate)
+	canceller, err := NewCanceller(c)
 	if err != nil {
 		return nil, err
 	}

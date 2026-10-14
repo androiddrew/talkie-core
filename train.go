@@ -4,17 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/androiddrew/talkie-core/internal/audio"
 	"github.com/androiddrew/talkie-core/internal/calibrate"
 	"github.com/androiddrew/talkie-core/internal/device"
+	"github.com/androiddrew/talkie-core/internal/engine"
 )
 
 // Step is one stage of room training, for the application to present.
 type Step struct {
-	Name        string // "noise", "echo"
+	Name        string // "noise", "echo", "canceller"
 	Instruction string // what to tell the user
 }
 
@@ -35,11 +38,40 @@ const (
 )
 
 // Train measures the room through cfg's devices: the background noise, then
-// the speaker-to-microphone delay and level from quiet chirps. It needs no
-// models. Save the result with SaveProfile at ProfilePath(dir, p.Input,
-// p.Output) for Run to find it.
+// the speaker-to-microphone delay and level from quiet chirps. When
+// cfg.Kokoro names the Kokoro files (with cfg.ORTLibrary), it then speaks a
+// short paragraph while the echo canceller learns the room, so Run can start
+// with it learned. Save the result with SaveProfile at ProfilePath(dir,
+// p.Input, p.Output) for Run to find it.
 func Train(ctx context.Context, cfg Config, prompt Prompt) (Profile, error) {
-	return train(ctx, cfg, prompt, openDevice)
+	var speak speech
+	if cfg.Kokoro.ModelPath != "" {
+		speak = func(rate int) ([]float32, error) { return synthesize(ctx, cfg, trainingSpeech, rate) }
+	}
+	return train(ctx, cfg, prompt, openDevice, speak)
+}
+
+// speech returns audio to play at rate while the echo canceller learns.
+type speech func(rate int) ([]float32, error)
+
+// trainingSpeech is about ten seconds of speech, enough for the echo
+// canceller to learn the room across the voice's whole band.
+const trainingSpeech = "Hello! I'm learning how this room sounds, so that I can still hear you while I'm talking. " +
+	"Please stay quiet for a few more seconds. Listening closely to an echo is how I learn to ignore it. Thank you, that's all."
+
+// synthesize speaks text with the configured Kokoro voice at rate.
+func synthesize(ctx context.Context, cfg Config, words string, rate int) ([]float32, error) {
+	tts, err := loadKokoro(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("talkie: load Kokoro: %w", err)
+	}
+	defer tts.Close()
+	var out []float32
+	err = newKokoroVoice(tts, cfg.Kokoro, rate).Speak(ctx, words, func(samples []float32) error {
+		out = append(out, samples...)
+		return nil
+	})
+	return out, err
 }
 
 // duplex is an open audio device; device.Duplex is one, and tests supply
@@ -60,7 +92,7 @@ func openDevice(c device.Config, cb device.Callback) (duplex, error) {
 	return d, nil
 }
 
-func train(ctx context.Context, cfg Config, prompt Prompt, open opener) (Profile, error) {
+func train(ctx context.Context, cfg Config, prompt Prompt, open opener, speak speech) (Profile, error) {
 	if prompt == nil {
 		return Profile{}, errors.New("talkie: Train needs a prompt")
 	}
@@ -114,7 +146,64 @@ func train(ctx context.Context, cfg Config, prompt Prompt, open opener) (Profile
 		p.Latency = LatencyProfile{}
 	}
 	p.Echo.adviseEcho()
+
+	if speak != nil && p.Echo.Heard {
+		if err := prompt(ctx, Step{Name: "canceller", Instruction: "talkie will now speak for about ten seconds while it learns its own echo. Please stay quiet."}); err != nil {
+			return Profile{}, err
+		}
+		words, err := speak(rate)
+		if err != nil {
+			return Profile{}, err
+		}
+		play := append(words, make([]float32, rate)...) // and the echo's tail
+		heard, played, _, _, err := record(ctx, open, dc, play, len(play))
+		if err != nil {
+			return Profile{}, err
+		}
+		if p.Canceller, err = learnEcho(heard, played, rate); err != nil {
+			return Profile{}, err
+		}
+	}
 	return p, nil
+}
+
+// learnEcho runs talkie's echo canceller over a recording of its own
+// speech, aligned and resampled exactly as Run feeds the engine, and
+// returns what it learned.
+func learnEcho(heard, played []float32, rate int) (*CancellerProfile, error) {
+	c, err := engine.NewCanceller(engine.Defaults().Echo)
+	if err != nil {
+		return nil, err
+	}
+	mic := clip(audio.NewResampler(rate, audio.SampleRate).Process(slices.Clone(heard)))
+	ref := clip(audio.NewResampler(rate, audio.SampleRate).Process(slices.Clone(played)))
+	frame := engine.EchoFrame
+	out := make([]float32, frame)
+	frames := min(len(mic), len(ref)) / frame
+	var in, rest float64
+	for f := range frames {
+		m, r := mic[f*frame:(f+1)*frame], ref[f*frame:(f+1)*frame]
+		if err := c.Cancel(m, r, out); err != nil {
+			return nil, err
+		}
+		if f >= frames*2/3 { // how well it learned: the last third
+			in += energy(m)
+			rest += energy(out)
+		}
+	}
+	var erle float64
+	if in > 0 && rest > 0 {
+		erle = 10 * math.Log10(in/rest)
+	}
+	return &CancellerProfile{Snapshot: c.Snapshot(), ERLEDB: erle}, nil
+}
+
+func energy(x []float32) float64 {
+	var e float64
+	for _, v := range x {
+		e += float64(v) * float64(v)
+	}
+	return e
 }
 
 // record opens the devices, plays play (silence when nil) and records the

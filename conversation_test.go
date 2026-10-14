@@ -62,11 +62,15 @@ type benchOptions struct {
 	wakeAt []float64
 	stt    []string // what the user says, utterance by utterance
 	echo   bool
+	room   *sim.Room // instead of the default room
 }
 
 func newBench(t *testing.T, agent Agent, o benchOptions) *bench {
 	t.Helper()
 	b := &bench{t: t, player: audio.NewPlayer(sim.Rate, 15*time.Millisecond), room: sim.NewRoom(o.echo), noise: sim.NewNoise()}
+	if o.room != nil {
+		b.room = o.room
+	}
 	said := o.stt
 	var err error
 	b.conv, err = newConversation(t.Context(), conversationConfig{

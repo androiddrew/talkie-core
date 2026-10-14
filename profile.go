@@ -30,6 +30,19 @@ type Profile struct {
 	// NoiseDBFS is the room's background level at the microphone, in dB
 	// relative to full scale.
 	NoiseDBFS float64
+	// Canceller is the echo canceller as it learned the room, or nil when
+	// training didn't play speech.
+	Canceller *CancellerProfile
+}
+
+// CancellerProfile is a trained echo canceller. Run restores it so the
+// first reply starts with the echo path already learned.
+type CancellerProfile struct {
+	// Snapshot is the canceller's state (go-speexdsp's echo.Canceller
+	// Snapshot); it restores only into talkie's canceller configuration.
+	Snapshot []byte
+	// ERLEDB is the echo it removed at the end of training, in dB.
+	ERLEDB float64
 }
 
 // LatencyProfile is the round trip measured on several opens of the
@@ -148,6 +161,10 @@ type profileFile struct {
 	Noise struct {
 		FloorDBFS float64 `json:"floor_dbfs"`
 	} `json:"noise"`
+	Canceller *struct {
+		ERLEDB   float64 `json:"erle_db"`
+		Snapshot []byte  `json:"snapshot"`
+	} `json:"canceller,omitempty"`
 }
 
 func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
@@ -166,6 +183,12 @@ func SaveProfile(path string, p Profile) error {
 	f.Latency.MinMS, f.Latency.MedianMS, f.Latency.MaxMS = ms(p.Latency.Min), ms(p.Latency.Median), ms(p.Latency.Max)
 	f.Echo.Heard, f.Echo.GainDB, f.Echo.Clipped, f.Echo.Advice = p.Echo.Heard, p.Echo.GainDB, p.Echo.Clipped, p.Echo.Advice
 	f.Noise.FloorDBFS = p.NoiseDBFS
+	if c := p.Canceller; c != nil {
+		f.Canceller = &struct {
+			ERLEDB   float64 `json:"erle_db"`
+			Snapshot []byte  `json:"snapshot"`
+		}{c.ERLEDB, c.Snapshot}
+	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
@@ -215,6 +238,9 @@ func LoadProfile(path string) (Profile, error) {
 	}
 	for _, r := range f.Latency.RunsMS {
 		p.Latency.Runs = append(p.Latency.Runs, fromMS(r))
+	}
+	if c := f.Canceller; c != nil {
+		p.Canceller = &CancellerProfile{Snapshot: c.Snapshot, ERLEDB: c.ERLEDB}
 	}
 	p.Latency.Min, p.Latency.Median, p.Latency.Max = fromMS(f.Latency.MinMS), fromMS(f.Latency.MedianMS), fromMS(f.Latency.MaxMS)
 	return p, nil

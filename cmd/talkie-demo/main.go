@@ -5,7 +5,8 @@
 //	go run ./cmd/talkie-demo -ort /path/to/libonnxruntime.so \
 //	    -parakeet /path/to/parakeet -kokoro /path/to/kokoro -wake "hey computer"
 //
-// Train it to the room once first: go run ./cmd/talkie-demo -train
+// Train it to the room once first (with -ort and -kokoro it also speaks, so
+// its echo canceller learns the room): go run ./cmd/talkie-demo -train ...
 //
 // Say the wake word, then something, and it repeats what it heard. Say "tell
 // me a story" for a long reply to interrupt by talking over it; say "continue"
@@ -65,7 +66,15 @@ func main() {
 		return
 	}
 	if *room {
-		trainRoom(talkie.Config{InputDevice: *input, OutputDevice: *output})
+		cfg := talkie.Config{InputDevice: *input, OutputDevice: *output, ORTLibrary: *ort, CUDA: *cuda}
+		if *kokoro != "" && *ort != "" { // speak while the echo canceller learns
+			cfg.Kokoro = talkie.KokoroConfig{
+				ModelPath:  filepath.Join(*kokoro, "kokoro-v1.0.onnx"),
+				VoicesPath: filepath.Join(*kokoro, "voices-v1.0.bin"),
+				Voice:      *voice,
+			}
+		}
+		trainRoom(cfg)
 		return
 	}
 	if *ort == "" || *parakeet == "" || *kokoro == "" {
@@ -235,6 +244,11 @@ func trainRoom(cfg talkie.Config) {
 		fmt.Printf("Latency:    %v (measured %v to %v; talkie will assume %v)\n",
 			p.Latency.Median.Round(time.Millisecond), p.Latency.Min.Round(time.Millisecond), p.Latency.Max.Round(time.Millisecond), p.Latency.Assumed().Round(time.Millisecond))
 		fmt.Printf("Echo:       %+.1f dB\n", p.Echo.GainDB)
+	}
+	if p.Canceller != nil {
+		fmt.Printf("Canceller:  learned the room, %.1f dB of echo removed\n", p.Canceller.ERLEDB)
+	} else {
+		fmt.Println("Canceller:  not trained (give -ort and -kokoro to train it)")
 	}
 	if p.Echo.Advice != "" {
 		fmt.Printf("\nAdvice: %s\n", p.Echo.Advice)

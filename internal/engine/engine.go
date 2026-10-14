@@ -165,6 +165,16 @@ func (e *Engine) resetSegmenter(endSilence time.Duration) error {
 	return nil
 }
 
+// RestoreEcho restores an echo canceller Snapshot taken from a canceller
+// made by NewCanceller with the same configuration, so the engine starts
+// with the echo path already learned.
+func (e *Engine) RestoreEcho(snapshot []byte) error {
+	if e.echo == nil {
+		return errors.New("echo cancellation is off")
+	}
+	return e.echo.canceller.Restore(snapshot)
+}
+
 // SetIOLatency sets the audio devices' round trip, as Config.IOLatency.
 func (e *Engine) SetIOLatency(d time.Duration) { e.cfg.IOLatency = d }
 
