@@ -216,6 +216,29 @@ func (p *Player) Current() (Progress, bool) {
 	return Progress{}, false
 }
 
+// Recent returns the text of the playing item's segments whose audio
+// played within the last d, oldest first.
+func (p *Player) Recent(d time.Duration) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, it := range p.items {
+		if !it.started {
+			continue
+		}
+		from := it.played - int(d.Seconds()*float64(p.rate))
+		var texts []string
+		start := 0
+		for _, s := range it.segments {
+			if s.end > from && start < it.played {
+				texts = append(texts, s.text)
+			}
+			start = s.end
+		}
+		return texts
+	}
+	return nil
+}
+
 // EventKind distinguishes the player's notifications.
 type EventKind int
 

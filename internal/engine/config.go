@@ -47,7 +47,9 @@ type WakeConfig struct {
 	// CommandPreroll is how much audio before the detection point may start
 	// the command, for a command spoken in the same breath.
 	CommandPreroll time.Duration
-	// StripPhrases are removed from the start of transcripts.
+	// StripPhrases are the wake word as text: removed from the start of
+	// transcripts, and a wake detection while the agent has just said one
+	// is its own echo and ignored.
 	StripPhrases []string
 }
 

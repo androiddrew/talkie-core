@@ -321,6 +321,102 @@ func TestBargeInDisabledIsHalfDuplex(t *testing.T) {
 	}
 }
 
+// TestAgentSayingWakeWordIsIgnored: a wake detection while the agent says
+// the wake word is its own echo; once it has moved on, the wake word
+// interrupts again.
+func TestAgentSayingWakeWordIsIgnored(t *testing.T) {
+	speakStart := 1.0 + 0.952 + 0.1 + 2.7 + 1.5 // after wakeThenCommand
+	h := newHarness(t, options{wakeAt: []float64{wakeT, speakStart + 3.5, speakStart + 7.5},
+		edit: func(c *Config) { c.Wake.StripPhrases = []string{"hey computer"} }})
+	wakeThenCommand(h)
+	v := agentVoice(t, 8.0)
+	h.player.Start("s1")
+	h.player.Add("s1", v[:2*rate], "Once upon a time,")
+	h.player.Add("s1", v[2*rate:5*rate], "Just say hey computer to wake me.")
+	h.player.Add("s1", v[5*rate:], "It listened to the rain every night.")
+	h.player.End("s1", audio.ThenListen, 0)
+	h.feed(h.silence(5.0))
+	if h.has(InterruptionDetected) || h.find(WakeIgnored, nil).Reason != "agent_said_it" {
+		t.Fatalf("events %v", h.types())
+	}
+	h.feed(h.silence(3.0))
+	if ev := h.find(InterruptionDetected, nil); ev.Trigger != TriggerWake {
+		t.Errorf("events %v", h.types())
+	}
+}
+
+// TestBargeInDisabledWhileThinking: with barge-in off, neither speech nor
+// the wake word interrupts the agent while it thinks.
+func TestBargeInDisabledWhileThinking(t *testing.T) {
+	waiting := 1.0 + 0.952 + 0.1 + 2.7 + 1.5 // after wakeThenCommand
+	h := newHarness(t, options{wakeAt: []float64{wakeT, waiting + 1.0}, edit: func(c *Config) { c.BargeIn.Enabled = false }})
+	wakeThenCommand(h)
+	h.feed(h.silence(0.5))
+	h.feed(shortReply(t))
+	h.feed(h.silence(1.0))
+	if h.has(InterruptionDetected) || h.e.State() != Waiting {
+		t.Errorf("events %v, state %s", h.types(), h.e.State())
+	}
+}
+
+// TestInterruptWhileSpeaking: the application's interrupt, as from a key,
+// stops the agent even with barge-in off, and listens to the user without
+// the wake word.
+func TestInterruptWhileSpeaking(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}, echo: true, stt: replies("Tell me a story.", "Stop."),
+		edit: func(c *Config) { c.BargeIn.Enabled = false }})
+	wakeThenCommand(h)
+	longAnswer(h, "s1")
+	h.feed(h.silence(2.6))
+	h.e.Interrupt()
+	ev := h.find(InterruptionDetected, nil)
+	if ev.Trigger != TriggerManual || ev.AgentState != Speaking || ev.Playback.Heard != "Once upon a time," {
+		t.Errorf("interruption %+v", ev)
+	}
+	if h.player.Active() || h.e.State() != Listening {
+		t.Errorf("player active %v, state %s", h.player.Active(), h.e.State())
+	}
+	h.feed(h.silence(0.5))
+	if h.e.State() != Listening {
+		t.Fatalf("state %s before the user spoke", h.e.State())
+	}
+	h.feed(shortReply(t))
+	h.feed(h.silence(1.5))
+	if tr := h.find(Transcript, text("Stop.")); tr.Trigger != TriggerBargeIn {
+		t.Errorf("transcript trigger %s", tr.Trigger)
+	}
+}
+
+func TestInterruptWhileThinking(t *testing.T) {
+	h := newHarness(t, options{wakeAt: []float64{wakeT}})
+	wakeThenCommand(h)
+	h.e.Interrupt()
+	if ev := h.find(InterruptionDetected, nil); ev.Trigger != TriggerManual || ev.AgentState != Waiting || h.e.State() != Listening {
+		t.Errorf("interruption %+v, state %s", ev, h.e.State())
+	}
+}
+
+// TestInterruptIdle: with nothing to interrupt, it listens, as push-to-talk
+// does; while the user talks, it does nothing.
+func TestInterruptIdle(t *testing.T) {
+	h := newHarness(t, options{stt: replies("Lights on.")})
+	h.feed(h.silence(0.5))
+	h.e.Interrupt()
+	if !h.has(SessionStarted) || h.e.State() != Listening {
+		t.Fatalf("events %v, state %s", h.types(), h.e.State())
+	}
+	h.feed(command(t)[:rate])
+	h.e.Interrupt()
+	if h.e.State() != Capturing {
+		t.Errorf("state %s while the user talks", h.e.State())
+	}
+	h.feed(command(t)[rate:])
+	h.feed(h.silence(1.5))
+	if tr := h.find(Transcript, text("Lights on.")); tr.Trigger != TriggerCommand {
+		t.Errorf("transcript trigger %s", tr.Trigger)
+	}
+}
+
 func TestUserSpeaksWhileAgentThinks(t *testing.T) {
 	h := newHarness(t, options{wakeAt: []float64{wakeT}, stt: replies("Turn on the lights.", "Actually, never mind.")})
 	wakeThenCommand(h)

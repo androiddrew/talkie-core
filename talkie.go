@@ -73,6 +73,11 @@ type Config struct {
 	// verifies interruptions against the predicted echo.
 	DisableEchoCancellation bool
 
+	// BargeIn sets how the user can interrupt the agent by voice; the zero
+	// value, BargeInVoice, allows talking over it or saying the wake word.
+	// Talkie.Interrupt works whatever it is set to.
+	BargeIn BargeIn
+
 	// DisableReadyChime turns off the short chime Run plays when it starts.
 	// Run measures each session's audio latency from the chime's echo,
 	// since it can differ between device opens; without it, the latency
@@ -104,6 +109,22 @@ type KokoroConfig struct {
 	FirstChunkPhonemes, MaxChunkPhonemes int
 }
 
+// BargeIn is how the user can interrupt the agent by voice, while it talks
+// or thinks.
+type BargeIn int
+
+const (
+	// BargeInVoice interrupts when the user talks over the agent or says
+	// the wake word.
+	BargeInVoice BargeIn = iota
+	// BargeInWakeWord interrupts only on the wake word: the agent's own
+	// echo can't interrupt it, and the user needs the wake word to.
+	BargeInWakeWord
+	// BargeInOff never interrupts by voice: replies play to the end unless
+	// the application calls Talkie.Interrupt, as from a key or a button.
+	BargeInOff
+)
+
 // Talkie is a loaded voice front end for an agent.
 type Talkie struct {
 	cfg   Config
@@ -132,6 +153,9 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	if cfg.OutputRate == 0 {
 		cfg.OutputRate = 48000
 	}
+	if cfg.BargeIn < BargeInVoice || cfg.BargeIn > BargeInOff {
+		return nil, fmt.Errorf("talkie: unknown BargeIn %d", cfg.BargeIn)
+	}
 	t := &Talkie{cfg: cfg, open: openDevice, log: logEvents(cfg.Logger)}
 	defer func() {
 		if err != nil {
@@ -151,6 +175,7 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	ec.Echo.Enabled = !cfg.DisableEchoCancellation
 	ec.IOLatency = cfg.AudioLatency
 	ec.Echo.TrackLatency = cfg.AudioLatency == 0 // an explicit latency wins
+	ec.BargeIn = bargeIn(ec.BargeIn, cfg.BargeIn)
 	var listener engine.Wake
 	if cfg.WakeWord != "" {
 		if listener, err = t.loadWake(ctx, cfg); err != nil {
@@ -335,7 +360,7 @@ func logEvents(log *slog.Logger) func(engine.Event) {
 			attrs = append(attrs, "text", ev.Text, "trigger", ev.Trigger, "stt", ev.STTTime.Round(time.Millisecond))
 		case engine.SessionStarted, engine.ListeningStarted, engine.SpeechStarted:
 			attrs = append(attrs, "trigger", ev.Trigger)
-		case engine.SessionEnded, engine.UtteranceDiscarded, engine.SilenceDetected, engine.PlaybackStopped:
+		case engine.SessionEnded, engine.UtteranceDiscarded, engine.SilenceDetected, engine.PlaybackStopped, engine.WakeIgnored:
 			attrs = append(attrs, "reason", ev.Reason)
 		case engine.PlaybackFinished:
 			attrs = append(attrs, "played", ev.Playback.Played.Round(time.Millisecond), "echo_removed_db", ev.ERLE)
@@ -401,4 +426,15 @@ func (d *drift) observe(delay time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+// bargeIn sets the engine's barge-in for mode.
+func bargeIn(c engine.BargeInConfig, mode BargeIn) engine.BargeInConfig {
+	switch mode {
+	case BargeInWakeWord:
+		c.Speech, c.DuringThinking = false, false
+	case BargeInOff:
+		c.Enabled = false
+	}
+	return c
 }

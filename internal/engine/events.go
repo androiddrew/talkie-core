@@ -29,6 +29,7 @@ const (
 	TriggerContinuation Trigger = "continuation" // the user kept talking during transcription
 	TriggerAgent        Trigger = "agent"        // the agent spoke first
 	TriggerSpeech       Trigger = "speech"       // an interruption by voice
+	TriggerManual       Trigger = "manual"       // an interruption by the application, such as a key
 )
 
 // EventType names an event.
@@ -39,6 +40,7 @@ const (
 	SessionStarted        EventType = "session_started"
 	SessionEnded          EventType = "session_ended"
 	WakeDetected          EventType = "wake_detected"
+	WakeIgnored           EventType = "wake_ignored" // the agent said the wake word
 	ListeningStarted      EventType = "listening"
 	SpeechStarted         EventType = "speech_started"
 	SilenceDetected       EventType = "silence_detected"

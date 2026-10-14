@@ -276,6 +276,51 @@ func TestBargeInCancelsTurn(t *testing.T) {
 	}
 }
 
+// TestKeyInterruptsReply: Interrupt, as from a key, cancels the turn like
+// a voice barge-in, and the user's next words are its follow-up.
+func TestKeyInterruptsReply(t *testing.T) {
+	asked := newTurns()
+	agent := AgentFunc(func(ctx context.Context, turn Turn, reply *Reply) error {
+		asked.add(turn)
+		if turn.Trigger != TriggerWake {
+			return nil
+		}
+		reply.WriteString("Once upon a time, in a land far away, there lived a robot. ")
+		reply.WriteString("It listened to the rain every single night without fail. ")
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	b := newBench(t, agent, benchOptions{wakeAt: []float64{wakeT}, stt: []string{"Tell me a story.", "Stop, that's enough."}})
+	b.wakeThenCommand()
+	asked.next(t)
+	b.silence(3.0)
+	b.conv.eng.Interrupt() // what Talkie.Interrupt posts
+	b.silence(0.5)
+	b.feed(sim.Command(t))
+	b.silence(1.5)
+	next := asked.next(t)
+	if in := next.Interrupted; next.Text != "Stop, that's enough." || next.Trigger != TriggerBargeIn || in == nil ||
+		in.Heard != "Once upon a time, in a land far away, there lived a robot." {
+		t.Fatalf("next turn %+v, interrupted %+v", next, next.Interrupted)
+	}
+	if b.player.Active() {
+		t.Error("the reply kept playing")
+	}
+}
+
+func TestBargeInModes(t *testing.T) {
+	d := engine.Defaults().BargeIn
+	if c := bargeIn(d, BargeInVoice); c != d {
+		t.Errorf("voice %+v", c)
+	}
+	if c := bargeIn(d, BargeInWakeWord); !c.Enabled || c.Speech || !c.Wake || c.DuringThinking {
+		t.Errorf("wake word %+v", c)
+	}
+	if c := bargeIn(d, BargeInOff); c.Enabled {
+		t.Errorf("off %+v", c)
+	}
+}
+
 // TestStreamedReply writes the reply in small deltas, as an LLM streams
 // tokens: it is spoken sentence by sentence, in the agent's words.
 func TestStreamedReply(t *testing.T) {

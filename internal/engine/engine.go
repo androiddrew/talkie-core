@@ -275,7 +275,7 @@ func (e *Engine) onVAD(prob float32, start int64) {
 			e.beginCapture(TriggerContinuation, ev.Sample, 0)
 		}
 	case Waiting:
-		if onset && e.cfg.BargeIn.DuringThinking {
+		if onset && e.cfg.BargeIn.Enabled && e.cfg.BargeIn.DuringThinking {
 			e.emit(Event{Type: InterruptionDetected, Trigger: TriggerSpeech, AgentState: Waiting, SpeechTime: duration(e.pos - ev.Sample)})
 			e.beginCapture(TriggerBargeIn, ev.Sample, 0)
 		}
@@ -462,7 +462,11 @@ func (e *Engine) onWake(at int64) {
 	if st == Capturing {
 		return // the wake word inside an utterance is just words
 	}
-	if st == Speaking && !(e.cfg.BargeIn.Enabled && e.cfg.BargeIn.Wake) {
+	if (st == Speaking || st == Waiting) && !(e.cfg.BargeIn.Enabled && e.cfg.BargeIn.Wake) {
+		return
+	}
+	if st == Speaking && e.agentSaidWake() {
+		e.emit(Event{Type: WakeIgnored, Reason: "agent_said_it"})
 		return
 	}
 	if e.session == "" {
@@ -480,6 +484,25 @@ func (e *Engine) onWake(at int64) {
 		trigger = TriggerBargeIn
 	}
 	e.enterListening(e.cfg.Session.AfterWakeTimeout, trigger, at-samples(e.cfg.Wake.CommandPreroll), 0, 0)
+}
+
+// ownWakeLookback is how far back in the agent's speech a wake word
+// detection may come from: the listener's 1.5 s window, its hop, and the
+// device's round trip on top.
+const ownWakeLookback = 2 * time.Second
+
+// agentSaidWake reports whether the agent's recent speech contains the wake
+// word, which its echo would carry to the wake listener.
+func (e *Engine) agentSaidWake() bool {
+	if len(e.cfg.Wake.StripPhrases) == 0 {
+		return false
+	}
+	for _, text := range e.deps.Player.Recent(ownWakeLookback + e.cfg.IOLatency) {
+		if ContainsWakePhrase(text, e.cfg.Wake.StripPhrases) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) checkTimers() {
@@ -577,6 +600,31 @@ func (e *Engine) Listen(timeout, endSilence time.Duration) error {
 	}
 	e.listenWindow(timeout, endSilence, trigger)
 	return nil
+}
+
+// Interrupt is the application interrupting the agent, as with a key: it
+// stops the agent, speaking or thinking, and listens to the user, as the
+// wake word does, whatever BargeIn allows. Otherwise it listens, starting a
+// session if none is open. While the user is talking it does nothing.
+func (e *Engine) Interrupt() {
+	st := e.state
+	if st == Capturing {
+		return
+	}
+	if e.session == "" {
+		e.startSession(TriggerCommand)
+	}
+	trigger, notBefore := TriggerCommand, int64(0)
+	switch st {
+	case Speaking:
+		e.confirmBargeIn(TriggerManual, -1, 0)
+		// The agent's last words are still on their way to the microphone.
+		trigger, notBefore = TriggerBargeIn, e.pos+samples(e.cfg.IOLatency+100*time.Millisecond)
+	case Waiting:
+		e.emit(Event{Type: InterruptionDetected, Trigger: TriggerManual, AgentState: Waiting})
+		trigger = TriggerBargeIn
+	}
+	e.enterListening(e.cfg.Session.AfterWakeTimeout, trigger, e.pos, notBefore, 0)
 }
 
 // StopPlayback stops the agent's audio; a speaking agent then waits.

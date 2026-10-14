@@ -73,6 +73,38 @@ func StripWakePhrase(text string, phrases []string) string {
 	return string(unicode.ToUpper(r)) + rest[size:]
 }
 
+// ContainsWakePhrase reports whether any of phrases appears anywhere in
+// text, fuzzily, as StripWakePhrase matches them.
+func ContainsWakePhrase(text string, phrases []string) bool {
+	var words []string
+	for _, t := range strings.Fields(text) {
+		if w := norm(t); w != "" {
+			words = append(words, w)
+		}
+	}
+	for _, p := range phrases {
+		var target []string
+		for _, w := range strings.Fields(p) {
+			if w := norm(w); w != "" {
+				target = append(target, w)
+			}
+		}
+		if len(target) == 0 {
+			continue
+		}
+	next:
+		for i := 0; i+len(target) <= len(words); i++ {
+			for j, w := range target {
+				if !similar(words[i+j], w) {
+					continue next
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func similar(a, b string) bool {
 	return a == b || ratio(a, b) >= stripCutoff
 }

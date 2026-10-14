@@ -28,6 +28,25 @@ func TestStripWakePhrase(t *testing.T) {
 	}
 }
 
+func TestContainsWakePhrase(t *testing.T) {
+	phrases := []string{"hey computer"}
+	for text, want := range map[string]bool{
+		"Just say hey computer to wake me.": true,
+		"Hey, Computer!":                    true,
+		"Hey computor, are you there":       true,
+		"The computer is on.":               false,
+		"Hey there.":                        false,
+		"":                                  false,
+	} {
+		if got := ContainsWakePhrase(text, phrases); got != want {
+			t.Errorf("ContainsWakePhrase(%q) = %v", text, got)
+		}
+	}
+	if ContainsWakePhrase("hey computer", nil) {
+		t.Error("no phrases matched")
+	}
+}
+
 // Values from Python's difflib.SequenceMatcher(None, a, b).ratio().
 func TestRatio(t *testing.T) {
 	for _, c := range []struct {

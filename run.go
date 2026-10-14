@@ -205,6 +205,14 @@ func (t *Talkie) Listen() {
 	t.conv.post(func() { _ = t.conv.eng.Listen(0, 0) })
 }
 
+// Interrupt stops the agent, whether it is talking or thinking, and listens
+// to the user without the wake word, whatever Config.BargeIn is set to: for
+// a key or a button. When the agent isn't talking or thinking it listens, as
+// Listen does. It takes effect on Run's goroutine.
+func (t *Talkie) Interrupt() {
+	t.conv.post(t.conv.eng.Interrupt)
+}
+
 // EndSession ends the conversation in progress, if any.
 func (t *Talkie) EndSession() {
 	t.conv.post(func() { t.conv.eng.EndSession("client") })

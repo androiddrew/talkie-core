@@ -3,6 +3,7 @@ package audio
 import (
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -136,5 +137,24 @@ func TestPlayerDuck(t *testing.T) {
 	p.Read(out)
 	if out[0] != 1 {
 		t.Errorf("Stop did not restore full volume: %v", out[0])
+	}
+}
+
+func TestPlayerRecent(t *testing.T) {
+	p := NewPlayer(1000, time.Millisecond)
+	p.Start("a")
+	p.Add("a", make([]float32, 1000), "One.")
+	p.Add("a", make([]float32, 1000), "Two.")
+	p.Add("a", make([]float32, 1000), "Three.")
+	p.End("a", ThenListen, 0)
+	if got := p.Recent(time.Second); got != nil {
+		t.Errorf("before playing: %v", got)
+	}
+	p.Read(make([]float32, 1500))
+	if got := p.Recent(200 * time.Millisecond); !slices.Equal(got, []string{"Two."}) {
+		t.Errorf("1.5 s in, last 0.2 s: %v", got)
+	}
+	if got := p.Recent(time.Second); !slices.Equal(got, []string{"One.", "Two."}) {
+		t.Errorf("1.5 s in, last 1 s: %v", got)
 	}
 }

@@ -11,8 +11,15 @@
 //
 // Say the wake word, then something, and it repeats what it heard. Say "tell
 // me a story" for a long reply to interrupt by talking over it; say "continue"
-// afterwards to pick it up from the sentence you cut off. Press Enter to talk
-// without the wake word. Say "goodbye" to end the session.
+// afterwards to pick it up from the sentence you cut off. Press Enter to
+// interrupt it, or to talk without the wake word. Say "goodbye" to end the
+// session.
+//
+// -barge-in sets what interrupts by voice: "voice" (talking over it or the
+// wake word), "wake" (only the wake word) or "off" (nothing; only Enter, or
+// the Pause key with -key). -key reads a keyboard directly, such as
+// /dev/input/by-id/...-event-kbd, so Pause works without the terminal in
+// focus; it needs read access to the device (the input group).
 package main
 
 import (
@@ -45,6 +52,8 @@ func main() {
 		input    = flag.String("input", "", "microphone: part of its name; default device if empty")
 		output   = flag.String("output", "", "speaker: part of its name; default device if empty")
 		noAEC    = flag.Bool("no-echo-cancel", false, "turn off echo cancellation (headset, or an echo-cancelled mic)")
+		barge    = flag.String("barge-in", "voice", `what interrupts the agent by voice: "voice", "wake" or "off"`)
+		key      = flag.String("key", "", "keyboard event device whose Pause key interrupts, e.g. /dev/input/by-id/...-event-kbd")
 		noChime  = flag.Bool("no-chime", false, "turn off the ready chime that measures each session's audio latency")
 		latency  = flag.Duration("latency", 0, "speaker-to-microphone round trip (default 100ms)")
 		list     = flag.Bool("list", false, "list audio devices and exit")
@@ -85,6 +94,10 @@ func main() {
 	if *ort == "" || *parakeet == "" || *kokoro == "" {
 		fail(fmt.Errorf("-ort, -parakeet and -kokoro are required (see -h)"))
 	}
+	bargeIn, ok := map[string]talkie.BargeIn{"voice": talkie.BargeInVoice, "wake": talkie.BargeInWakeWord, "off": talkie.BargeInOff}[*barge]
+	if !ok {
+		fail(fmt.Errorf(`-barge-in is "voice", "wake" or "off", not %q`, *barge))
+	}
 	level := slog.LevelInfo
 	if *verbose {
 		level = slog.LevelDebug
@@ -108,6 +121,7 @@ func main() {
 		OutputDevice:            *output,
 		DisableEchoCancellation: *noAEC,
 		DisableReadyChime:       *noChime,
+		BargeIn:                 bargeIn,
 		AudioLatency:            *latency,
 		Logger:                  log,
 	}, &parrot{})
@@ -116,16 +130,28 @@ func main() {
 	}
 	defer t.Close()
 
-	go func() { // Enter talks without the wake word
+	go func() { // Enter interrupts, or talks without the wake word
 		in := bufio.NewScanner(os.Stdin)
 		for in.Scan() {
-			t.Listen()
+			t.Interrupt()
 		}
 	}()
+	if *key != "" {
+		keys, err := os.Open(*key)
+		if err != nil {
+			fail(fmt.Errorf("-key: %w (reading a keyboard needs the input group: sudo usermod -aG input $USER, then log in again)", err))
+		}
+		defer func() { _ = keys.Close() }()
+		go func() {
+			if err := onPause(keys, t.Interrupt); err != nil && ctx.Err() == nil {
+				log.Warn("the Pause key stopped working", "err", err)
+			}
+		}()
+	}
 	if *wake != "" {
-		log.Info(fmt.Sprintf("listening: say %q, or press Enter; Ctrl-C quits", *wake))
+		log.Info(fmt.Sprintf("listening: say %q, or press Enter to talk or interrupt; Ctrl-C quits", *wake))
 	} else {
-		log.Info("listening: press Enter to talk; Ctrl-C quits")
+		log.Info("listening: press Enter to talk or interrupt; Ctrl-C quits")
 	}
 	if err := t.Run(ctx); err != nil {
 		fail(err)
