@@ -140,5 +140,15 @@ go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet assets/parakeet -kokoro asset
 - `TALKIE_TEST_ORT=/path/libonnxruntime.so` adds the conversation scenarios: real Silero VAD, a simulated room with echo, and recorded speech.
 - `TALKIE_TEST_PARAKEET` (the directory, FP32 or INT8) and `TALKIE_TEST_KOKORO` (the directory with both files) add whole conversations through the real models. Add `TALKIE_TEST_CUDA=1` to use the GPU.
 
+## Known limits
+- Linux on x86-64 with PipeWire is the only tested platform. macOS, Windows and arm64 (such as a Jetson) need their own testing.
+- English only: Kokoro speaks with its US and UK English voices, and PhonMatchNet's wake words are English.
+- The same devices' round trip can differ by about 60 ms between opens, and it drifts over hours. The ready chime measures each session, but a restored echo canceller is left out when this session's latency is more than 25 ms from the trained range, and the canceller then learns the room from scratch.
+- With `BargeInVoice`, the reply can dip in volume for a moment near its start: before the echo canceller has settled, the reply's echo can look like the user talking over it, and checking that ducks the reply.
+- A Kokoro model run in progress can't be interrupted, so barge-in waits up to one run (`KokoroConfig.MaxChunkPhonemes`).
+- The wake word and voice activity always run on the CPU.
+- Room profiles aren't migrated: one of another format version, or whose echo canceller snapshot doesn't restore, needs training again.
+- One `Run` at a time per `Talkie`.
+
 ## License
-Apache-2.0; see LICENSE and NOTICE. The models have their own licenses; see each library's ASSETS.md.
+Apache-2.0; see LICENSE, NOTICE and THIRD_PARTY.md. The models have their own licenses; see each library's ASSETS.md.

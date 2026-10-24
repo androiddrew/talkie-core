@@ -1,8 +1,10 @@
 # Changelog
 
-## [0.1.0] - Unreleased
+## [Unreleased]
 
-First release.
+## [0.1.0] - 2026-10-23
+
+### Added
 
 - `talkie.New` and `Talkie.Run`: a voice front end for an `Agent`, all in-process on one ONNX Runtime:
   - the wake word (PhonMatchNet), voice activity (Silero VAD), speech to text (Parakeet TDT 0.6B v3) and text to speech (Kokoro-82M v1.0);
@@ -19,3 +21,15 @@ First release.
 - `Config.OnEvent`: state changes, transcripts, replies, interruptions, latency and errors.
 - `cmd/talkie-demo`: a toy agent for trying talkie in a real room.
 - `scripts/get-assets.sh`: downloads ONNX Runtime 1.22 (CPU or CUDA) and the pinned Parakeet and Kokoro files, checked against SHA256.
+
+### Known limits
+
+- Tested only on Linux x86-64 with PipeWire.
+- English only.
+- Device latency differs by about 60 ms between opens; a restored echo canceller is left out when a session's latency is more than 25 ms from the trained range.
+- With `BargeInVoice`, the reply can dip in volume near its start while the echo canceller settles.
+- Barge-in waits for the Kokoro model run in progress.
+- The wake word and voice activity run on the CPU only.
+
+[Unreleased]: https://github.com/androiddrew/talkie-core/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/androiddrew/talkie-core/releases/tag/v0.1.0
