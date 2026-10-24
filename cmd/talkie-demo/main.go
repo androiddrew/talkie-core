@@ -143,7 +143,7 @@ func main() {
 		}
 		defer func() { _ = keys.Close() }()
 		go func() {
-			if err := onPause(keys, t.Interrupt); err != nil && ctx.Err() == nil {
+			if err := onPause(keys, t.Interrupt); ctx.Err() == nil {
 				log.Warn("the Pause key stopped working", "err", err)
 			}
 		}()

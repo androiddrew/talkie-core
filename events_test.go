@@ -103,7 +103,10 @@ func TestInterruptionEvents(t *testing.T) {
 		b := newBench(t, agent, benchOptions{wakeAt: []float64{wakeT}, stt: []string{"Tell me a story.", "Stop."}})
 		got := published(b)
 		b.wakeThenCommand()
-		b.silence(3.0)
+		// The first sentence, 3.5 s, has played completely after 4 s, and
+		// the second, 3.4 s more, hasn't yet.
+		b.synthesized()
+		b.silence(4.0)
 		if by == InterruptedByApp {
 			b.conv.eng.Interrupt()
 		} else {
@@ -140,10 +143,10 @@ func TestChimeAndRoomEvents(t *testing.T) {
 	b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
 	open, _ := simOpener(true, 100, -6)
 	got = nil
-	tk = &Talkie{cfg: Config{IgnoreRoomProfile: true, OnEvent: func(ev Event) { got = append(got, ev) }},
-		conv: b.conv, player: b.player, open: open}
-	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	tk = &Talkie{cfg: Config{IgnoreRoomProfile: true, OnEvent: func(ev Event) { got = append(got, ev) }},
+		conv: b.conv, player: b.player, open: open, started: cancel, chimeWait: time.Hour}
 	if err := tk.Run(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -151,6 +151,12 @@ type Talkie struct {
 	wake          *phonmatchnet.Engine
 	player        *audio.Player
 	conv          *conversation
+
+	// Tests set these: started is called once Run has measured the ready
+	// chime and applied the room profile, and chimeWait, when not zero,
+	// replaces the constant, so a slow machine can't time the chime out.
+	started   func()
+	chimeWait time.Duration
 }
 
 // New loads the models and returns a front end that hands what the user says

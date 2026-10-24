@@ -196,9 +196,9 @@ func TestReadyChime(t *testing.T) {
 		var logs syncBuffer
 		b := newBench(t, AgentFunc(func(context.Context, Turn, *Reply) error { return nil }), benchOptions{})
 		open, _ := simOpener(c.echo, c.delayMS, -6)
+		ctx, cancel := context.WithCancel(t.Context())
 		tk := &Talkie{cfg: Config{RoomProfileDir: dir, DisableReadyChime: c.off, Logger: slog.New(slog.NewTextHandler(&logs, nil))},
-			conv: b.conv, player: b.player, open: open}
-		ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+			conv: b.conv, player: b.player, open: open, started: cancel, chimeWait: time.Hour}
 		err := tk.Run(ctx)
 		cancel()
 		if err != nil {

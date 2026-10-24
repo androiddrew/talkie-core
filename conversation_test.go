@@ -21,11 +21,13 @@ const wakeT = 1.95 // end of the wake phrase in wakeThenCommand
 
 // fakeVoice "synthesizes" text as real speech, 60 ms per character, so the
 // VAD and the room treat the agent's voice like a voice. It delivers a
-// quarter second at a time, like a model run.
+// quarter second at a time, like a model run, and signals finished after
+// each sentence it delivers completely.
 type fakeVoice struct {
-	speech []float32
-	mu     sync.Mutex
-	spoken []string
+	speech   []float32
+	finished chan struct{}
+	mu       sync.Mutex
+	spoken   []string
 }
 
 func (v *fakeVoice) Speak(ctx context.Context, text string, yield func([]float32) error) error {
@@ -46,6 +48,10 @@ func (v *fakeVoice) Speak(ctx context.Context, text string, yield func([]float32
 			return err
 		}
 	}
+	select {
+	case v.finished <- struct{}{}:
+	default: // nil, or a test that doesn't wait for sentences
+	}
 	return nil
 }
 
@@ -55,6 +61,7 @@ type bench struct {
 	player *audio.Player
 	room   *sim.Room
 	noise  *sim.Noise
+	voice  *fakeVoice
 	log    []engine.Event
 }
 
@@ -67,7 +74,8 @@ type benchOptions struct {
 
 func newBench(t *testing.T, agent Agent, o benchOptions) *bench {
 	t.Helper()
-	b := &bench{t: t, player: audio.NewPlayer(sim.Rate, 15*time.Millisecond), room: sim.NewRoom(o.echo), noise: sim.NewNoise()}
+	b := &bench{t: t, player: audio.NewPlayer(sim.Rate, 15*time.Millisecond), room: sim.NewRoom(o.echo), noise: sim.NewNoise(),
+		voice: &fakeVoice{speech: sim.AgentVoice(t, 8.0), finished: make(chan struct{}, 64)}}
 	if o.room != nil {
 		b.room = o.room
 	}
@@ -79,7 +87,7 @@ func newBench(t *testing.T, agent Agent, o benchOptions) *bench {
 		wake:   sim.NewWake(o.wakeAt...),
 		player: b.player,
 		agent:  agent,
-		voice:  &fakeVoice{speech: sim.AgentVoice(t, 8.0)},
+		voice:  b.voice,
 		stt: func(context.Context, []float32) (string, error) {
 			if len(said) == 0 {
 				return "", nil
@@ -131,6 +139,18 @@ func (b *bench) wakeThenCommand() {
 	b.silence(0.1)
 	b.feed(sim.Command(b.t))
 	b.silence(1.5)
+}
+
+// synthesized waits until the agent's voice has delivered its next sentence
+// entirely into the player. Synthesis runs on the turn's goroutine, which can
+// fall behind the lock-step audio on a slow machine.
+func (b *bench) synthesized() {
+	b.t.Helper()
+	select {
+	case <-b.voice.finished:
+	case <-time.After(10 * time.Second):
+		b.t.Fatal("the sentence was never synthesized")
+	}
 }
 
 // spoken waits until the latest turn's reply is entirely in the player.

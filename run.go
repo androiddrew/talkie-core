@@ -133,6 +133,9 @@ func (t *Talkie) Run(ctx context.Context) error {
 	}
 	input, output := dev.Names()
 	t.useProfile(input, output, session)
+	if t.started != nil {
+		t.started()
+	}
 	done := make(chan error, 1)
 	go func() {
 		for _, b := range early {
@@ -171,7 +174,11 @@ func (t *Talkie) measureChime(ctx context.Context, blocks <-chan block) ([]block
 	want := lead + length + int((maxEchoDelay+period).Seconds()*audio.SampleRate)
 	var early []block
 	var mic, ref []float32
-	timeout := time.After(chimeWait)
+	wait := chimeWait
+	if t.chimeWait != 0 {
+		wait = t.chimeWait
+	}
+	timeout := time.After(wait)
 	for len(mic) < want {
 		select {
 		case <-ctx.Done():

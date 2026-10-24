@@ -11,8 +11,10 @@ engine, player, ring buffer, resampler, transcript clean-up and echo
 simulation of
 wonky-talkie (Copyright 2026 Drew Bednar), https://github.com/androiddrew/wonky-talkie.
 
-Test clips in internal/engine/testdata are real speech from openWakeWord
-(https://github.com/dscripka/openWakeWord, Apache-2.0); see its README.md.
+Test clips in internal/sim/testdata are real speech from openWakeWord
+(https://github.com/dscripka/openWakeWord, Apache-2.0), and Kokoro-82M v1.0
+(Apache-2.0) clips from go-phonmatchnet v0.1.0's fixtures in the voices
+af_heart, am_michael and bf_emma; see its README.md.
 
 Test clips in internal/wake/testdata are from go-phonmatchnet v0.1.0's
 fixtures: synthesized with Kokoro-82M v1.0 (Apache-2.0), voice af_heart,
