@@ -81,28 +81,60 @@ func floats(b []byte, frames uint32) []float32 {
 	return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), frames)
 }
 
-// find returns the ID and full name of the first device of kind whose name
-// contains name. For an empty name it returns a nil ID, which selects the
-// system default, and the default device's name.
+// find returns the ID and full name of the device of kind that name
+// selects (see choose). For an empty name it returns a nil ID, which selects
+// the system default, and the default device's name.
 func find(ctx *malgo.AllocatedContext, kind malgo.DeviceType, name string) (unsafe.Pointer, string, error) {
 	infos, err := ctx.Devices(kind)
 	if err != nil {
 		return nil, "", fmt.Errorf("device: list: %w", err)
 	}
-	var names []string
-	for _, info := range infos {
-		if name == "" && info.IsDefault != 0 {
-			return nil, info.Name(), nil
-		}
-		if name != "" && strings.Contains(strings.ToLower(info.Name()), strings.ToLower(name)) {
-			return info.ID.Pointer(), info.Name(), nil
-		}
-		names = append(names, info.Name())
-	}
 	if name == "" {
+		for _, info := range infos {
+			if info.IsDefault != 0 {
+				return nil, info.Name(), nil
+			}
+		}
 		return nil, "default", nil // the backend reports no default; it still opens one
 	}
-	return nil, "", fmt.Errorf("device: no device matches %q; have %q", name, names)
+	names := make([]string, len(infos))
+	for i, info := range infos {
+		names[i] = info.Name()
+	}
+	i, err := choose(names, name, kind == malgo.Capture)
+	if err != nil {
+		return nil, "", err
+	}
+	return infos[i].ID.Pointer(), names[i], nil
+}
+
+// monitorPrefix starts the names PulseAudio and PipeWire give their monitor
+// sources: microphones that hear what a speaker plays.
+const monitorPrefix = "monitor of "
+
+// choose returns the index of the device name selects, ignoring case: the
+// one named exactly that, or else the first whose name contains it. A
+// capture device's monitor sources are left out unless name asks for one: a
+// USB headset's monitor is listed first and its name contains the
+// microphone's whole name.
+func choose(names []string, name string, capture bool) (int, error) {
+	want := strings.ToLower(name)
+	for i, n := range names {
+		if strings.ToLower(n) == want {
+			return i, nil
+		}
+	}
+	monitors := strings.Contains(want, "monitor")
+	for i, n := range names {
+		lower := strings.ToLower(n)
+		if capture && !monitors && strings.HasPrefix(lower, monitorPrefix) {
+			continue
+		}
+		if strings.Contains(lower, want) {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("device: no device matches %q; have %q", name, names)
 }
 
 // Start begins audio.
