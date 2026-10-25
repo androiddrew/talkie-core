@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - `Config.Cues`: optional sounds for a device without a screen, played through talkie's own output so the echo canceller removes them:
@@ -44,5 +46,6 @@
 - Barge-in waits for the Kokoro model run in progress.
 - The wake word and voice activity run on the CPU only.
 
-[Unreleased]: https://github.com/androiddrew/talkie-core/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/androiddrew/talkie-core/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/androiddrew/talkie-core/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/androiddrew/talkie-core/releases/tag/v0.1.0
