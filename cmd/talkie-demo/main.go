@@ -55,6 +55,7 @@ func main() {
 		barge    = flag.String("barge-in", "wake", `what interrupts the agent by voice: "wake", "voice" or "off"`)
 		key      = flag.String("key", "", "keyboard event device whose Pause key interrupts, e.g. /dev/input/by-id/...-event-kbd")
 		noChime  = flag.Bool("no-chime", false, "turn off the ready chime that measures each session's audio latency")
+		cues     = flag.Bool("cues", false, "play talkie's built-in sounds when it starts listening, while it thinks, and when the session ends")
 		latency  = flag.Duration("latency", 0, "speaker-to-microphone round trip (default 100ms)")
 		list     = flag.Bool("list", false, "list audio devices and exit")
 		room     = flag.Bool("train", false, "train talkie to this room and these devices, save the profile, and exit")
@@ -121,6 +122,7 @@ func main() {
 		OutputDevice:            *output,
 		DisableEchoCancellation: *noAEC,
 		DisableReadyChime:       *noChime,
+		Cues:                    demoCues(*cues),
 		BargeIn:                 bargeIn,
 		AudioLatency:            *latency,
 		Logger:                  log,
@@ -312,4 +314,12 @@ func wakeAdvice(p talkie.Profile) string {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "talkie-demo:", err)
 	os.Exit(1)
+}
+
+// demoCues is talkie's built-in cues when on is set, or none.
+func demoCues(on bool) talkie.Cues {
+	if !on {
+		return talkie.Cues{}
+	}
+	return talkie.DefaultCues()
 }

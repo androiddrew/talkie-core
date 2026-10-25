@@ -45,8 +45,11 @@ type Config struct {
 	// OutputRate is the speaker's sample rate; zero selects 48 kHz.
 	OutputRate int
 
-	// InputDevice and OutputDevice select the microphone and speaker by a
-	// case-insensitive substring of their names; empty selects the system
+	// InputDevice and OutputDevice select the microphone and speaker by
+	// name, ignoring case: a device named exactly that, or else the first
+	// whose name contains it. PulseAudio's and PipeWire's monitor sources
+	// ("Monitor of ...") are skipped unless InputDevice says "monitor", so a
+	// USB headset's name selects its microphone. Empty selects the system
 	// defaults. OutputRate is the rate both run at.
 	InputDevice, OutputDevice string
 
@@ -84,6 +87,11 @@ type Config struct {
 	// value, BargeInWakeWord, allows only the wake word, so the agent's own
 	// echo can't interrupt it. Talkie.Interrupt works whatever it is set to.
 	BargeIn BargeIn
+
+	// Cues are sounds that say when talkie starts listening, while it
+	// thinks, and when the session ends, for a device without a screen; the
+	// zero value plays none. DefaultCues has built-in ones.
+	Cues Cues
 
 	// DisableReadyChime turns off the short chime Run plays when it starts.
 	// Run measures each session's audio latency from the chime's echo,
@@ -191,6 +199,9 @@ func New(ctx context.Context, cfg Config, agent Agent) (_ *Talkie, err error) {
 	ec.IOLatency = cfg.AudioLatency
 	ec.Echo.TrackLatency = cfg.AudioLatency == 0 // an explicit latency wins
 	ec.BargeIn = bargeIn(ec.BargeIn, cfg.BargeIn)
+	if ec.Cues, err = engineCues(cfg.Cues, cfg.OutputRate); err != nil {
+		return nil, err
+	}
 	var listener engine.Wake
 	if cfg.WakeWord != "" {
 		if listener, err = t.loadWake(ctx, cfg); err != nil {

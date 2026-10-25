@@ -158,3 +158,74 @@ func TestPlayerRecent(t *testing.T) {
 		t.Errorf("1.5 s in, last 1 s: %v", got)
 	}
 }
+
+// TestPlayerCues: a cue mixes over the agent's audio, at full volume
+// however it is ducked, and doesn't count as the agent playing.
+func TestPlayerCues(t *testing.T) {
+	p := NewPlayer(rate, time.Millisecond)
+	p.Start("a")
+	p.Add("a", ones(100), "Hi.")
+	p.Duck(-20)
+	out := make([]float32, 50)
+	p.Read(out) // ramp down to the duck
+	p.Cue([]float32{0.5, 0.5, 0.5})
+	p.Read(out)
+	if got := out[0] - 0.1; math.Abs(float64(got-0.5)) > 1e-6 || out[3] != out[4] {
+		t.Errorf("cue over ducked audio: %v", out[:5])
+	}
+	stopped := p.Stop()
+	if len(stopped) != 1 {
+		t.Fatalf("stop: %+v", stopped)
+	}
+	p.Cue(ones(30))
+	if p.Active() {
+		t.Error("a cue made the player active")
+	}
+	// Two cues at once add up; one ending mid-read leaves the rest silent.
+	p.Cue(ones(10))
+	p.Read(out)
+	if out[0] != 2 || out[9] != 2 || out[10] != 1 || out[29] != 1 || out[30] != 0 {
+		t.Errorf("two cues: %v", out)
+	}
+	if p.Read(out); sum(out) != 0 {
+		t.Errorf("after the cues: %v", out)
+	}
+}
+
+// TestPlayerLoop: a loop repeats seamlessly across reads until StopLoop,
+// then fades out over the ramp.
+func TestPlayerLoop(t *testing.T) {
+	p := NewPlayer(rate, 4*time.Millisecond) // a 4-sample ramp
+	loop := []float32{1, 2, 3}
+	p.Loop(loop)
+	p.Loop([]float32{9}) // already looping: no restart
+	var got []float32
+	for _, n := range []int{2, 5, 1} {
+		out := make([]float32, n)
+		p.Read(out)
+		got = append(got, out...)
+	}
+	if want := []float32{1, 2, 3, 1, 2, 3, 1, 2}; !slices.Equal(got, want) {
+		t.Errorf("loop %v, want %v", got, want)
+	}
+	if !p.Looping() {
+		t.Error("not looping")
+	}
+	p.StopLoop()
+	if p.Looping() {
+		t.Error("looping after StopLoop")
+	}
+	out := make([]float32, 8)
+	p.Read(out)
+	if want := []float32{3, 0.75, 1, 0.75, 0, 0, 0, 0}; !slices.Equal(out, want) { // 3, 1, 2, 3 at 4/4 to 1/4
+		t.Errorf("fade %v, want %v", out, want)
+	}
+	// Loop while fading starts afresh.
+	p.Loop(loop)
+	p.StopLoop()
+	p.Loop([]float32{5})
+	p.Read(out[:2])
+	if out[0] != 5 || out[1] != 5 {
+		t.Errorf("restart during fade: %v", out[:2])
+	}
+}
