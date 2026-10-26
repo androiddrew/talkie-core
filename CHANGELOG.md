@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+### Added
+
+- `Config.Cues`: optional sounds for a device without a screen, played through talkie's own output so the echo canceller removes them:
+  - `Listening` when talkie starts listening at the user's request (the wake word, `Listen` or `Interrupt`);
+  - `Thinking`, looped from `ThinkingDelay` (500 ms) after the user stops talking until the reply starts, the user interrupts or the session ends;
+  - `Idle` when the session ends.
+- `DefaultCues`: built-in listening, thinking and idle sounds. `ReadWAV` reads a WAV file as a cue `Sound`, which talkie resamples to the speaker's rate.
+- `talkie-demo -cues` plays the built-in cues.
+
+### Fixed
+
+- `Config.InputDevice` couldn't select a USB headset's microphone on PulseAudio or PipeWire: the first name containing the search won, and the headset's monitor source, listed first, contains the microphone's whole name. An exact name now wins, and monitor sources are skipped unless the name asks for one.
+
 ## [0.1.0] - 2026-10-23
 
 ### Added
@@ -31,5 +46,6 @@
 - Barge-in waits for the Kokoro model run in progress.
 - The wake word and voice activity run on the CPU only.
 
-[Unreleased]: https://github.com/androiddrew/talkie-core/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/androiddrew/talkie-core/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/androiddrew/talkie-core/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/androiddrew/talkie-core/releases/tag/v0.1.0

@@ -39,6 +39,7 @@ type harness struct {
 	room   *sim.Room
 	noise  *sim.Noise
 	log    []Event
+	played []float32 // everything the speaker played
 	stt    func([]float32) string
 	delay  int64
 	jobs   []pendingJob
@@ -88,6 +89,7 @@ func (h *harness) feed(user []float32) {
 		block := user[start:min(start+chunk, len(user))]
 		ref := make([]float32, len(block))
 		h.e.PlayerEvents(h.player.Read(ref))
+		h.played = append(h.played, ref...)
 		if err := h.e.Audio(context.Background(), h.room.Mix(block, ref), ref); err != nil {
 			h.t.Fatal(err)
 		}

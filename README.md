@@ -100,6 +100,14 @@ talkie calls `Agent.Respond` once for each thing the user says. It runs on its o
 
 `Talkie.Interrupt` stops the agent in any mode, for a key or a button. When nothing is playing, it starts listening as push-to-talk does (`Talkie.Listen`). A wake word the agent itself just said is ignored.
 
+## Cues
+For a device without a screen, `Config.Cues` plays short sounds that say what talkie is doing. Each is optional, and the zero value plays none:
+- **`Listening`**: talkie started listening at the user's request: the wake word, `Talkie.Listen` opening a session, or `Talkie.Interrupt`. Follow-up windows after a reply are silent.
+- **`Thinking`**, looped: from half a second after the user stops talking (`ThinkingDelay`), through transcription and the agent's work, until the reply starts, the user interrupts, or the session ends.
+- **`Idle`**: the session ended, and talkie waits for the wake word.
+
+`DefaultCues` has built-in sounds: two glassy notes a fifth up for listening, the same down for idle, and a quiet fifth that swells and fades every 1.6 s while it thinks. `ReadWAV` reads your own, in any rate, mono or not. talkie plays cues through its own output, so the echo canceller removes them from the microphone like the agent's voice. They don't count as the agent speaking.
+
 ## Events
 `Config.OnEvent` receives what happens as it happens:
 - state changes (idle, listening, hearing, transcribing, thinking, speaking);
@@ -129,7 +137,8 @@ go run ./cmd/talkie-demo -train -ort $ORT -kokoro assets/kokoro   # once per roo
 go run ./cmd/talkie-demo -cuda -ort $ORT -parakeet assets/parakeet -kokoro assets/kokoro
 ```
 - Useful flags:
-  - `-list` lists the devices; `-input` and `-output` pick them;
+  - `-list` lists the devices; `-input` and `-output` pick them, by part of their names;
+  - `-cues` plays the built-in cues;
   - `-barge-in wake|voice|off` (default `wake`);
   - `-key` reads a keyboard's event device so the Pause key interrupts;
   - `-v` logs every state change.

@@ -110,6 +110,8 @@ type Engine struct {
 
 	sttBusy  bool
 	sttQueue []Job
+
+	thinkingSince int64 // when Processing or Waiting began, for the Thinking cue
 }
 
 // New returns an idle engine.
@@ -484,6 +486,7 @@ func (e *Engine) onWake(at int64) {
 		trigger = TriggerBargeIn
 	}
 	e.enterListening(e.cfg.Session.AfterWakeTimeout, trigger, at-samples(e.cfg.Wake.CommandPreroll), 0, 0)
+	e.deps.Player.Cue(e.cfg.Cues.Listening)
 }
 
 // ownWakeLookback is how far back in the agent's speech a wake word
@@ -506,6 +509,10 @@ func (e *Engine) agentSaidWake() bool {
 }
 
 func (e *Engine) checkTimers() {
+	if c := e.cfg.Cues; thinking(e.state) && c.Thinking != nil && !e.deps.Player.Looping() &&
+		e.pos-e.thinkingSince >= samples(c.ThinkingDelay) {
+		e.deps.Player.Loop(c.Thinking)
+	}
 	switch {
 	case e.state == Listening && e.pos >= e.listenDeadline:
 		e.emit(Event{Type: ListenTimeout, Timeout: e.listenTimeout})
@@ -599,6 +606,9 @@ func (e *Engine) Listen(timeout, endSilence time.Duration) error {
 		trigger = TriggerCommand
 	}
 	e.listenWindow(timeout, endSilence, trigger)
+	if trigger == TriggerCommand {
+		e.deps.Player.Cue(e.cfg.Cues.Listening)
+	}
 	return nil
 }
 
@@ -625,6 +635,7 @@ func (e *Engine) Interrupt() {
 		trigger = TriggerBargeIn
 	}
 	e.enterListening(e.cfg.Session.AfterWakeTimeout, trigger, e.pos, notBefore, 0)
+	e.deps.Player.Cue(e.cfg.Cues.Listening)
 }
 
 // StopPlayback stops the agent's audio; a speaking agent then waits.
@@ -658,9 +669,19 @@ func (e *Engine) setState(s State) {
 	if s != e.state {
 		from := e.state
 		e.state = s
+		switch {
+		case thinking(s) && !thinking(from):
+			e.thinkingSince = e.pos
+		case !thinking(s):
+			e.deps.Player.StopLoop()
+		}
 		e.emit(Event{Type: StateChanged, From: from, To: s})
 	}
 }
+
+// thinking reports whether s is the user waiting for the agent: their words
+// being transcribed, or the agent working on them.
+func thinking(s State) bool { return s == Processing || s == Waiting }
 
 func (e *Engine) startSession(trigger Trigger) {
 	e.session = newID("ses")
@@ -680,6 +701,7 @@ func (e *Engine) endSession(reason string) {
 	e.session = ""
 	e.segmenter.Reset()
 	e.emit(Event{Type: SessionEnded, Session: id, Reason: reason})
+	e.deps.Player.Cue(e.cfg.Cues.Idle)
 }
 
 func (e *Engine) enterListening(timeout time.Duration, trigger Trigger, lowerBound, notBefore int64, endSilence time.Duration) {

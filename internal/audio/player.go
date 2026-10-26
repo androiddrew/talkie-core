@@ -25,6 +25,11 @@ const (
 // are safe for concurrent use. Read returns the start and finish
 // notifications instead of calling back, so the caller decides which
 // goroutine handles them.
+//
+// Cues, short sounds that say what talkie is doing, are mixed over the
+// agent's audio, so they reach the echo reference too. They aren't the
+// agent's: they don't make the player Active, Duck doesn't turn them down,
+// and Stop leaves them playing.
 type Player struct {
 	rate int
 
@@ -32,6 +37,17 @@ type Player struct {
 	items        []*item
 	gain, target float64
 	step         float64 // gain change per sample while ramping
+	ramp         int     // samples in a ramp
+	cues         []*cue  // playing once
+	loop         *cue    // playing until StopLoop
+}
+
+// cue is a sound being mixed in. fade counts down the samples of a fade-out
+// when it is above zero.
+type cue struct {
+	samples []float32
+	pos     int
+	fade    int
 }
 
 type item struct {
@@ -56,7 +72,7 @@ type segment struct {
 // over ramp to avoid clicks when ducking.
 func NewPlayer(rate int, ramp time.Duration) *Player {
 	ramps := max(1, int(float64(rate)*ramp.Seconds()))
-	return &Player{rate: rate, gain: 1, target: 1, step: 1 / float64(ramps)}
+	return &Player{rate: rate, gain: 1, target: 1, step: 1 / float64(ramps), ramp: ramps}
 }
 
 // Rate returns the output sample rate.
@@ -239,6 +255,81 @@ func (p *Player) Recent(d time.Duration) []string {
 	return nil
 }
 
+// Cue plays samples at the output rate once, mixed over whatever else is
+// playing.
+func (p *Player) Cue(samples []float32) {
+	if len(samples) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cues = append(p.cues, &cue{samples: samples})
+}
+
+// Loop plays samples at the output rate over and over, mixed over whatever
+// else is playing, until StopLoop. A loop already playing continues, unless
+// it is fading out: then samples start afresh.
+func (p *Player) Loop(samples []float32) {
+	if len(samples) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.loop != nil && p.loop.fade == 0 {
+		return
+	}
+	p.loop = &cue{samples: samples}
+}
+
+// StopLoop fades the loop out over the ramp, so it doesn't click off.
+func (p *Player) StopLoop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.loop != nil && p.loop.fade == 0 {
+		p.loop.fade = p.ramp
+	}
+}
+
+// Looping reports whether a loop is playing and not fading out.
+func (p *Player) Looping() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loop != nil && p.loop.fade == 0
+}
+
+// mixCues adds the cues to out, at full volume.
+func (p *Player) mixCues(out []float32) {
+	kept := p.cues[:0]
+	for _, c := range p.cues {
+		n := min(len(out), len(c.samples)-c.pos)
+		for i := range n {
+			out[i] += c.samples[c.pos+i]
+		}
+		if c.pos += n; c.pos < len(c.samples) {
+			kept = append(kept, c)
+		}
+	}
+	clear(p.cues[len(kept):])
+	p.cues = kept
+	if c := p.loop; c != nil {
+		for i := range out {
+			s := c.samples[c.pos]
+			if c.pos++; c.pos == len(c.samples) {
+				c.pos = 0
+			}
+			if c.fade == 0 {
+				out[i] += s
+				continue
+			}
+			out[i] += s * float32(c.fade) / float32(p.ramp)
+			if c.fade--; c.fade == 0 {
+				p.loop = nil
+				break
+			}
+		}
+	}
+}
+
 // EventKind distinguishes the player's notifications.
 type EventKind int
 
@@ -296,6 +387,7 @@ func (p *Player) Read(out []float32) []Event {
 		pos += n
 	}
 	p.applyGain(out)
+	p.mixCues(out)
 	return events
 }
 

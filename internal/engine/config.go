@@ -13,9 +13,25 @@ type Config struct {
 	Wake    WakeConfig
 	BargeIn BargeInConfig
 	Echo    EchoConfig
+	Cues    CuesConfig
 	// IOLatency is the audio device's microphone-plus-speaker round trip. The
 	// barge-in verify window and the post-speech holdoff wait it out.
 	IOLatency time.Duration
+}
+
+// CuesConfig sets the sounds that say what the conversation is doing, as
+// samples at the player's rate; nil leaves one out.
+type CuesConfig struct {
+	// Listening plays when listening starts at the user's request: the wake
+	// word, Listen opening a session, or Interrupt.
+	Listening []float32
+	// Thinking loops from ThinkingDelay after the user stops talking, while
+	// the utterance is transcribed and the agent thinks, until the agent's
+	// audio starts or the session ends.
+	Thinking      []float32
+	ThinkingDelay time.Duration
+	// Idle plays when the session ends.
+	Idle []float32
 }
 
 // VADConfig sets endpointing.
